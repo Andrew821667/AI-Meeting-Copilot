@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 9 completed: calendar-driven profile suggestion via EventKit is integrated.
+Stage 10 completed: session history is indexed and loaded via SQLite.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -21,3 +21,4 @@ Stage 9 completed: calendar-driven profile suggestion via EventKit is integrated
 - docs/process/stage-7-report.md
 - docs/process/stage-8-report.md
 - docs/process/stage-9-report.md
+- docs/process/stage-10-report.md

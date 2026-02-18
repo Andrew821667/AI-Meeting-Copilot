@@ -15,6 +15,7 @@ from pdf_export import export_report_pdf
 from postfactum import build_markdown_report
 from profile_loader import apply_overrides, load_profile, profile_runtime_settings
 from session_export import export_session_json
+from session_history_store import SessionHistoryStore
 from telemetry import TelemetryCollector
 
 
@@ -38,6 +39,7 @@ class SessionRuntime:
     def __init__(self, exports_dir: Path) -> None:
         self.exports_dir = exports_dir
         self.feedback_store = FeedbackStore(exports_dir / "feedback.sqlite3")
+        self.history_store = SessionHistoryStore(exports_dir / "sessions.sqlite3")
         self.profile = load_profile("negotiation")
         self.profile_settings = profile_runtime_settings(self.profile)
         self.telemetry = TelemetryCollector()
@@ -136,6 +138,18 @@ class SessionRuntime:
         report_path = self.exports_dir / f"{self.session_id}-report.md"
         report_path.write_text(report_md, encoding="utf-8")
         report_pdf_path = export_report_pdf(report_path, self.session_id)
+
+        self.history_store.save_session(
+            session_id=self.session_id,
+            profile_id=self.profile.id,
+            started_at=self.started_at,
+            ended_at=self.ended_at,
+            total_cards=int(metrics.get("total_cards", 0)),
+            fallback_cards=int(metrics.get("fallback_cards", 0)),
+            export_json_path=str(json_path),
+            report_md_path=str(report_path),
+            report_pdf_path=str(report_pdf_path) if report_pdf_path is not None else None,
+        )
 
         summary = {
             "session_id": self.session_id,
