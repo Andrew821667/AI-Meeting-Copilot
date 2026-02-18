@@ -5,13 +5,12 @@ import asyncio
 import json
 import os
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
-from postfactum import build_markdown_report, build_meeting_memory
-from profile_loader import load_negotiation_profile
+from postfactum import build_markdown_report
+from profile_loader import load_profile
 from session_export import export_session_json
 from telemetry import TelemetryCollector
 
@@ -19,7 +18,7 @@ from telemetry import TelemetryCollector
 class SessionRuntime:
     def __init__(self, exports_dir: Path) -> None:
         self.exports_dir = exports_dir
-        self.profile = load_negotiation_profile()
+        self.profile = load_profile("negotiation")
         self.telemetry = TelemetryCollector()
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
 
@@ -37,10 +36,11 @@ class SessionRuntime:
         self.ended_at = 0.0
         self.active = True
 
-        self.profile = load_negotiation_profile()
+        self.profile = load_profile(profile)
         self.telemetry = TelemetryCollector()
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
         self.orchestrator.set_paused(False)
+
         self.transcript = []
         self.cards = []
 
@@ -54,7 +54,7 @@ class SessionRuntime:
         self.active = False
         self.ended_at = time.time()
 
-        meeting_memory = build_meeting_memory(self.transcript, self.cards)
+        meeting_memory = self.orchestrator.meeting_memory_snapshot(ended_ts=self.ended_at, cards=self.cards)
         metrics = self.telemetry.build_metrics()
 
         json_path = export_session_json(

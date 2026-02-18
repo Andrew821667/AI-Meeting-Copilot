@@ -9,7 +9,7 @@ from pathlib import Path
 
 from models import MicEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
-from profile_loader import load_negotiation_profile
+from profile_loader import load_profile
 from telemetry import TelemetryCollector
 
 
@@ -22,9 +22,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def run(duration_min: int, inject_timeouts: float, report: Path) -> None:
+async def run(duration_min: int, profile_id: str, inject_timeouts: float, report: Path) -> None:
     telemetry = TelemetryCollector()
-    orch = TriggerOrchestrator(load_negotiation_profile(), telemetry=telemetry)
+    orch = TriggerOrchestrator(load_profile(profile_id), telemetry=telemetry)
     # Accelerated thresholds for synthetic stress runs.
     orch.profile.min_context_min = 0
     orch.profile.cooldown_sec = 1
@@ -86,7 +86,7 @@ async def run(duration_min: int, inject_timeouts: float, report: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run(args.duration_min, args.inject_timeouts, Path(args.report)))
+    asyncio.run(run(args.duration_min, args.profile, args.inject_timeouts, Path(args.report)))
 
 
 if __name__ == "__main__":

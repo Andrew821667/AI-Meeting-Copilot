@@ -18,7 +18,7 @@ class RawBuffer:
         self._trim()
 
     def duration_minutes(self) -> float:
-        if len(self.entries) < 2:
+        if not self.entries:
             return 0.0
         return max(0.0, self.entries[-1].ts_end - self.entries[0].ts_start) / 60.0
 

@@ -4,7 +4,9 @@ import time
 import uuid
 from collections import deque
 
+from diarization_gate import DiarizationGate
 from llm_client import RealtimeLLMClient
+from meeting_memory import MeetingMemoryUpdater
 from models import AudioLevelEvent, InsightCard, MicEvent, RawBufferEntry, SystemStateEvent, TranscriptSegment
 from profile_loader import Profile
 from raw_buffer import RawBuffer
@@ -28,8 +30,16 @@ class TriggerOrchestrator:
         self.recent_utterances: deque[str] = deque(maxlen=50)
         self.pending_queue: deque[InsightCard] = deque(maxlen=20)
 
+        self.transcript_history: list[TranscriptSegment] = []
+        self.last_card_severity: str | None = None
+        self.memory_updater = MeetingMemoryUpdater()
+        self.diarization_gate = DiarizationGate()
+
     def set_paused(self, value: bool) -> None:
         self.paused = value
+
+    def meeting_memory_snapshot(self, ended_ts: float, cards: list[InsightCard]) -> dict:
+        return self.memory_updater.update_on_meeting_end(self.transcript_history, cards, ended_ts)
 
     async def on_mic_event(self, event: MicEvent) -> list[InsightCard]:
         if self.paused:
@@ -71,6 +81,23 @@ class TriggerOrchestrator:
 
         self.telemetry.asr_final_latency_ms.append(800)
 
+        resolved_speaker = self.diarization_gate.resolve_speaker(segment)
+        if resolved_speaker != segment.speaker:
+            segment = TranscriptSegment(
+                schemaVersion=segment.schemaVersion,
+                seq=segment.seq,
+                utteranceId=segment.utteranceId,
+                isFinal=segment.isFinal,
+                speaker=resolved_speaker,
+                text=segment.text,
+                tsStart=segment.tsStart,
+                tsEnd=segment.tsEnd,
+                speakerConfidence=segment.speakerConfidence,
+            )
+
+        self.telemetry.diarization_disabled_seconds = self.diarization_gate.disabled_seconds_remaining()
+
+        self.transcript_history.append(segment)
         self.raw_buffer.append(
             RawBufferEntry(
                 speaker=segment.speaker,
@@ -81,6 +108,8 @@ class TriggerOrchestrator:
         )
 
         score = self.scorer.compute(segment)
+        self.memory_updater.maybe_update(segment=segment, score=score, last_card_severity=self.last_card_severity)
+
         if not self._should_trigger(score=score, segment=segment):
             return cards
 
@@ -94,6 +123,7 @@ class TriggerOrchestrator:
             source_ts_end=segment.tsEnd,
         )
         card = result.card
+        self.last_card_severity = card.severity
 
         self.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
 
@@ -126,7 +156,7 @@ class TriggerOrchestrator:
         card = InsightCard(
             id=str(uuid.uuid4()),
             scenario=self.profile.id,
-            card_mode="reply_suggestions",
+            card_mode=self.profile.card_mode,
             trigger_reason="Ручной захват момента",
             insight=f"Ключевой контекст (30с): {text[:120] if text else 'контекст пуст'}",
             reply_cautious="Уточни формулировку и подтверди её письменно.",
@@ -180,7 +210,7 @@ class TriggerOrchestrator:
             summary = InsightCard(
                 id=str(uuid.uuid4()),
                 scenario=self.profile.id,
-                card_mode="reply_suggestions",
+                card_mode=self.profile.card_mode,
                 trigger_reason="очередь карточек переполнена",
                 insight="20 важных моментов пока вы говорили.",
                 reply_cautious="Сделайте короткую паузу, чтобы показать сводку.",

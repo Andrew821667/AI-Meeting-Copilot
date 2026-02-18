@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 3 completed: telemetry, session export/report, and pause/resume lifecycle are integrated.
+Stage 4 completed: adaptive memory, replay mode, diarization quality gates, and multi-profile backend are integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -15,3 +15,4 @@ Stage 3 completed: telemetry, session export/report, and pause/resume lifecycle 
 - docs/process/stage-1-report.md
 - docs/process/stage-2-report.md
 - docs/process/stage-3-report.md
+- docs/process/stage-4-report.md
