@@ -122,6 +122,14 @@ public struct ContentView: View {
             .frame(width: 300)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
+            Picker("ASR", selection: $viewModel.selectedASRProviderID) {
+                ForEach(viewModel.availableASRProviders) { provider in
+                    Text(provider.title).tag(provider.id)
+                }
+            }
+            .frame(width: 270)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
             Button("Настроить профиль") {
                 showProfileEditor = true
             }

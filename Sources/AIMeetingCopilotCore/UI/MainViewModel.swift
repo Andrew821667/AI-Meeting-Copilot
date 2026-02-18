@@ -27,15 +27,17 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var calendarSuggestedProfileID: String?
 
     @Published public var selectedProfileID: String = "negotiation"
+    @Published public var selectedASRProviderID: String = ASRProviderOption.whisperKit.id
     @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
 
     public let availableProfiles: [ProfileOption] = ProfileOption.all
+    public let availableASRProviders: [ASRProviderOption] = ASRProviderOption.all
     public let permissionsManager: PermissionsManager
 
     private let stateMachine = SessionStateMachine()
     private let micCaptureService = MicrophoneCaptureService()
     private let systemAudioService = SystemAudioCaptureService()
-    private let asrProvider: ASRProvider
+    private var asrProvider: ASRProvider
     private let hallucinationFilter = HallucinationFilter()
 
     private let backendProcessManager = BackendProcessManager()
@@ -118,6 +120,17 @@ public final class MainViewModel: ObservableObject {
                 }
                 self.profileSettings = .defaults(for: profileID)
                 self.reloadExcludedPhrases()
+            }
+            .store(in: &cancellables)
+
+        $selectedASRProviderID
+            .dropFirst()
+            .sink { [weak self] providerID in
+                guard let self else { return }
+                if self.sessionState == .capturing || self.sessionState == .paused {
+                    return
+                }
+                self.asrProvider = ASRProviderFactory.make(optionID: providerID)
             }
             .store(in: &cancellables)
     }

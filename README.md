@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 13 completed: dynamic LLM timeout warnings are integrated in UI.
+Stage 14 completed: ASR provider switch (WhisperKit/Qwen3-ASR scaffold) is integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -25,3 +25,4 @@ Stage 13 completed: dynamic LLM timeout warnings are integrated in UI.
 - docs/process/stage-11-report.md
 - docs/process/stage-12-report.md
 - docs/process/stage-13-report.md
+- docs/process/stage-14-report.md

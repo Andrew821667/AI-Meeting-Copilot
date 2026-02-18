@@ -9,8 +9,14 @@ public final class MockASRProvider: ASRProvider {
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private var streamTask: Task<Void, Never>?
     private var startedAt: TimeInterval = 0
+    private let script: [String]
 
-    public init() {
+    public init(script: [String] = [
+        "Коллеги, по дедлайну у нас остаётся три дня.",
+        "Если переносим срок, появится штраф в договоре.",
+        "Последнее предложение по цене действует до пятницы."
+    ]) {
+        self.script = script
         var continuationRef: AsyncStream<TranscriptSegment>.Continuation?
         self.segments = AsyncStream { continuation in
             continuationRef = continuation
@@ -25,13 +31,8 @@ public final class MockASRProvider: ASRProvider {
 
         streamTask = Task { [weak self] in
             guard let self else { return }
-            let script = [
-                "Коллеги, по дедлайну у нас остаётся три дня.",
-                "Если переносим срок, появится штраф в договоре.",
-                "Последнее предложение по цене действует до пятницы."
-            ]
 
-            for (index, text) in script.enumerated() {
+            for (index, text) in self.script.enumerated() {
                 if Task.isCancelled { return }
                 try? await Task.sleep(nanoseconds: 900_000_000)
 
@@ -64,7 +65,7 @@ public final class MockASRProvider: ASRProvider {
                 )
                 self.continuation?.yield(final)
 
-                if index == script.count - 1 {
+                if index == self.script.count - 1 {
                     break
                 }
             }
