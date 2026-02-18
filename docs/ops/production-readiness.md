@@ -32,7 +32,9 @@
 
 ## 5. Релизный контур
 
+- Пройден preflight: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_preflight.sh`.
 - Сформирован `.app` bundle.
+  - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/build_app_bundle.sh`
 - Выполнен packaging backend: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/package_backend.sh`.
 - Выполнены подпись и notarization:
   - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_macos.sh`

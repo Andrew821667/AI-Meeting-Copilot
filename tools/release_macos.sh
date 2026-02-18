@@ -10,7 +10,6 @@ APP_BUNDLE="$1"
 ZIP_PATH="${APP_BUNDLE%.*}.zip"
 
 : "${AIMC_CODESIGN_IDENTITY:?Нужна переменная AIMC_CODESIGN_IDENTITY}"
-: "${AIMC_NOTARY_PROFILE:?Нужна переменная AIMC_NOTARY_PROFILE (notarytool keychain profile)}"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
   echo "Не найден app bundle: $APP_BUNDLE"
@@ -25,7 +24,18 @@ echo "2) Архивация для notarization..."
 ditto -c -k --keepParent "$APP_BUNDLE" "$ZIP_PATH"
 
 echo "3) Отправка на notarization..."
-xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$AIMC_NOTARY_PROFILE" --wait
+if [[ -n "${AIMC_NOTARY_PROFILE:-}" ]]; then
+  xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$AIMC_NOTARY_PROFILE" --wait
+elif [[ -n "${AIMC_NOTARY_KEY_ID:-}" && -n "${AIMC_NOTARY_ISSUER_ID:-}" && -n "${AIMC_NOTARY_KEY_PATH:-}" ]]; then
+  xcrun notarytool submit "$ZIP_PATH" \
+    --key "$AIMC_NOTARY_KEY_PATH" \
+    --key-id "$AIMC_NOTARY_KEY_ID" \
+    --issuer "$AIMC_NOTARY_ISSUER_ID" \
+    --wait
+else
+  echo "Нужны notarization credentials: AIMC_NOTARY_PROFILE или AIMC_NOTARY_KEY_*"
+  exit 1
+fi
 
 echo "4) Staple ticket..."
 xcrun stapler staple "$APP_BUNDLE"

@@ -4,7 +4,7 @@ macOS-приложение для realtime-подсказок на онлайн-
 
 ## Текущий статус
 
-- Закрыты этапы 0-23 дорожной карты.
+- Закрыты этапы 0-24 дорожной карты.
 - Внедрены fallback-механизмы для LLM и аудио.
 - Подключён CI для Python и Swift тестов.
 - Добавлены healthcheck и UDS smoke-тест backend.
@@ -27,6 +27,8 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 
 Операционные инструменты:
 - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/smoke_test_backend.sh`
+- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/build_app_bundle.sh`
+- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_preflight.sh`
 - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_macos.sh`
 
 ## Stage artifacts
@@ -59,3 +61,4 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 - docs/process/stage-21-report.md
 - docs/process/stage-22-report.md
 - docs/process/stage-23-report.md
+- docs/process/stage-24-report.md
