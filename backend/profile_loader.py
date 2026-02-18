@@ -27,6 +27,8 @@ class Profile:
     min_pause_sec: float
     min_context_min: int
     card_mode: str
+    emotion_enabled: bool
+    semantic_enabled: bool
     trigger_vocab: list[TriggerRule]
     negative_rules: list[NegativeRule]
 
@@ -40,6 +42,8 @@ def _negotiation() -> Profile:
         min_pause_sec=1.5,
         min_context_min=2,
         card_mode="reply_suggestions",
+        emotion_enabled=False,
+        semantic_enabled=False,
         trigger_vocab=[
             TriggerRule(type="token", value="штраф", weight=0.90, aliases=["штрафа", "штрафом", "штрафные"]),
             TriggerRule(type="token", value="дедлайн", weight=0.80, aliases=["deadline", "dead line", "дед лайн"]),
@@ -64,6 +68,8 @@ def _interview_candidate() -> Profile:
         min_pause_sec=1.5,
         min_context_min=1,
         card_mode="reply_suggestions",
+        emotion_enabled=False,
+        semantic_enabled=False,
         trigger_vocab=[
             TriggerRule(type="phrase", value="расскажи о себе", weight=0.90),
             TriggerRule(type="phrase", value="слабые стороны", weight=0.95),
@@ -85,6 +91,8 @@ def _interview_interviewer() -> Profile:
         min_pause_sec=1.5,
         min_context_min=1,
         card_mode="questions_to_ask",
+        emotion_enabled=False,
+        semantic_enabled=False,
         trigger_vocab=[
             TriggerRule(type="phrase", value="мы делали", weight=0.70),
             TriggerRule(type="phrase", value="я отвечал за все", weight=0.85),
@@ -104,6 +112,8 @@ def _consulting() -> Profile:
         min_pause_sec=1.5,
         min_context_min=1,
         card_mode="questions_to_ask",
+        emotion_enabled=False,
+        semantic_enabled=False,
         trigger_vocab=[
             TriggerRule(type="token", value="требования", weight=0.75),
             TriggerRule(type="token", value="ограничения", weight=0.75),
@@ -125,6 +135,8 @@ def _sales() -> Profile:
         min_pause_sec=1.5,
         min_context_min=1,
         card_mode="reply_suggestions",
+        emotion_enabled=False,
+        semantic_enabled=False,
         trigger_vocab=[
             TriggerRule(type="token", value="дорого", weight=0.90),
             TriggerRule(type="phrase", value="не сейчас", weight=0.85),
@@ -145,6 +157,8 @@ def _tech_sync() -> Profile:
         min_pause_sec=1.5,
         min_context_min=1,
         card_mode="hypothesis_debug",
+        emotion_enabled=False,
+        semantic_enabled=True,
         trigger_vocab=[
             TriggerRule(type="token", value="ошибка", weight=0.80),
             TriggerRule(type="token", value="лог", weight=0.70),
@@ -194,6 +208,8 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         min_pause_sec=float(overrides.get("min_pause_sec", profile.min_pause_sec)),
         min_context_min=int(overrides.get("min_context_min", profile.min_context_min)),
         card_mode=profile.card_mode,
+        emotion_enabled=bool(overrides.get("emotion_enabled", profile.emotion_enabled)),
+        semantic_enabled=bool(overrides.get("semantic_enabled", profile.semantic_enabled)),
         trigger_vocab=profile.trigger_vocab,
         negative_rules=profile.negative_rules,
     )
@@ -207,4 +223,6 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "min_pause_sec": profile.min_pause_sec,
         "min_context_min": profile.min_context_min,
         "card_mode": profile.card_mode,
+        "emotion_enabled": profile.emotion_enabled,
+        "semantic_enabled": profile.semantic_enabled,
     }

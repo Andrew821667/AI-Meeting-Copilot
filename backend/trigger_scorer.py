@@ -3,8 +3,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from emotion_detector import EmotionDetector
 from models import TranscriptSegment
 from profile_loader import Profile
+from semantic_detector import SemanticDetector
 
 
 @dataclass
@@ -31,9 +33,21 @@ def normalize(text: str) -> str:
 
 
 class TriggerScorer:
-    def __init__(self, profile: Profile) -> None:
+    def __init__(
+        self,
+        profile: Profile,
+        *,
+        semantic_detector: SemanticDetector | None = None,
+        emotion_detector: EmotionDetector | None = None,
+    ) -> None:
         self.profile = profile
+        self.semantic_detector = semantic_detector or SemanticDetector(enabled=profile.semantic_enabled)
+        self.emotion_detector = emotion_detector or EmotionDetector(enabled=profile.emotion_enabled)
         self.last_breakdown = ScoreBreakdown(keyword_score=0.0)
+        self.optional_signals_enabled = True
+
+    def set_optional_signals_enabled(self, enabled: bool) -> None:
+        self.optional_signals_enabled = enabled
 
     def compute(self, segment: TranscriptSegment) -> float:
         text = normalize(segment.text)
@@ -63,5 +77,16 @@ class TriggerScorer:
                 keyword_score += rule.weight
 
         keyword_score = min(keyword_score, 1.0)
-        self.last_breakdown = ScoreBreakdown(keyword_score=keyword_score)
+        semantic_shift = 0.0
+        emotion_boost = 0.0
+        if self.optional_signals_enabled:
+            semantic_shift = self.semantic_detector.compute(segment.text)
+            emotion_label, emotion_conf = self.emotion_detector.detect_from_text(segment.text, keyword_score)
+            emotion_boost = emotion_conf if emotion_label != "neutral" else 0.0
+
+        self.last_breakdown = ScoreBreakdown(
+            keyword_score=keyword_score,
+            semantic_shift=semantic_shift,
+            emotion_boost=emotion_boost,
+        )
         return self.last_breakdown.total

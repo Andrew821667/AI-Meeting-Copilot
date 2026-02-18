@@ -35,6 +35,7 @@ class TriggerOrchestrator:
         self.memory_updater = MeetingMemoryUpdater()
         self.diarization_gate = DiarizationGate()
         self.excluded_phrases: set[str] = set()
+        self.degraded_mode = False
 
     def set_paused(self, value: bool) -> None:
         self.paused = value
@@ -79,6 +80,10 @@ class TriggerOrchestrator:
 
     async def on_system_state(self, event: SystemStateEvent) -> None:
         self.telemetry.on_system_state(event)
+        should_degrade = event.thermalState in {"serious", "critical"} or event.batteryLevel < 0.2
+        if should_degrade != self.degraded_mode:
+            self.degraded_mode = should_degrade
+            self.scorer.set_optional_signals_enabled(not should_degrade)
 
     async def on_transcript_segment(self, segment: TranscriptSegment) -> list[InsightCard]:
         cards: list[InsightCard] = []

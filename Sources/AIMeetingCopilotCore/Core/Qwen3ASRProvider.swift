@@ -11,7 +11,8 @@ public final class Qwen3ASRProvider: ASRProvider {
             "Давайте сверим SLA и latency по API перед релизом.",
             "По логам видно regression после последнего hotfix.",
             "Нужен быстрый план диагностики и владельцы задач."
-        ]
+        ],
+        speakerPlan: ["THEM_A", "THEM_B", "THEM_B"]
     )
 
     public init() {}

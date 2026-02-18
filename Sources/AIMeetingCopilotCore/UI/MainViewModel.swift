@@ -80,6 +80,14 @@ public final class MainViewModel: ObservableObject {
             self?.handleSystemAudioLevel(event)
         }
 
+        systemAudioService.onCaptureModeChanged = { [weak self] mode, reason in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.captureMode = mode
+                self.errorMessage = reason
+            }
+        }
+
         udsClient.onInsightCard = { [weak self] card in
             self?.handleIncomingCard(card)
         }

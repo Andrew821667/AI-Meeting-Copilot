@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 14 completed: ASR provider switch (WhisperKit/Qwen3-ASR scaffold) is integrated.
+Stage 21 completed: all remaining roadmap blocks are implemented in a single delivery pass.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -26,3 +26,10 @@ Stage 14 completed: ASR provider switch (WhisperKit/Qwen3-ASR scaffold) is integ
 - docs/process/stage-12-report.md
 - docs/process/stage-13-report.md
 - docs/process/stage-14-report.md
+- docs/process/stage-15-report.md
+- docs/process/stage-16-report.md
+- docs/process/stage-17-report.md
+- docs/process/stage-18-report.md
+- docs/process/stage-19-report.md
+- docs/process/stage-20-report.md
+- docs/process/stage-21-report.md
