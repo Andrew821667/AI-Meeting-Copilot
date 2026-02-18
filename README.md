@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 8 completed: PDF export for session reports is integrated.
+Stage 9 completed: calendar-driven profile suggestion via EventKit is integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -20,3 +20,4 @@ Stage 8 completed: PDF export for session reports is integrated.
 - docs/process/stage-6-report.md
 - docs/process/stage-7-report.md
 - docs/process/stage-8-report.md
+- docs/process/stage-9-report.md

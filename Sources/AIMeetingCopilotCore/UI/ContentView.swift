@@ -16,6 +16,7 @@ public struct ContentView: View {
                 }
 
                 controls
+                calendarHint
                 liveTranscript
 
                 if let errorMessage = viewModel.errorMessage {
@@ -45,6 +46,7 @@ public struct ContentView: View {
         }
         .onAppear {
             viewModel.reloadSessionHistory()
+            viewModel.refreshCalendarSuggestion(autoApply: true)
         }
     }
 
@@ -131,6 +133,25 @@ public struct ContentView: View {
                     }
                 }
                 .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private var calendarHint: some View {
+        GroupBox("Календарь") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(viewModel.calendarStatusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Обновить из календаря") {
+                        viewModel.refreshCalendarSuggestion()
+                    }
+                    Button("Применить профиль") {
+                        viewModel.applyCalendarSuggestedProfile()
+                    }
+                    .disabled(viewModel.calendarSuggestedProfileID == nil || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+                }
             }
         }
     }

@@ -21,6 +21,8 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public private(set) var sessionHistory: [SessionHistoryItem] = []
     @Published public var errorMessage: String?
+    @Published public private(set) var calendarStatusText: String = "Календарь: не проверен"
+    @Published public private(set) var calendarSuggestedProfileID: String?
 
     @Published public var selectedProfileID: String = "negotiation"
     @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
@@ -37,6 +39,7 @@ public final class MainViewModel: ObservableObject {
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
     private let historyStore = SessionHistoryStore()
+    private let calendarSuggester = CalendarProfileSuggester()
 
     private var transcriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
@@ -47,6 +50,8 @@ public final class MainViewModel: ObservableObject {
     private var lastAudioLevelSentAt: TimeInterval = 0
     private var lastThermalState: ProcessInfo.ThermalState = .nominal
     private let telemetrySeq = SequenceNumberGenerator(startAt: 100_000)
+    private var isApplyingCalendarSuggestion = false
+    private var hasManualProfileSelection = false
 
     public init(asrProvider: ASRProvider = WhisperKitProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
         self.asrProvider = asrProvider
@@ -99,6 +104,9 @@ public final class MainViewModel: ObservableObject {
                 guard let self else { return }
                 if self.sessionState == .capturing || self.sessionState == .paused {
                     return
+                }
+                if !self.isApplyingCalendarSuggestion {
+                    self.hasManualProfileSelection = true
                 }
                 self.profileSettings = .defaults(for: profileID)
             }
@@ -175,6 +183,36 @@ public extension MainViewModel {
 
     func resetProfileSettingsToDefaults() {
         profileSettings = .defaults(for: selectedProfileID)
+    }
+
+    func refreshCalendarSuggestion(autoApply: Bool = false) {
+        Task {
+            let result = await calendarSuggester.fetchNearestSuggestion()
+            await MainActor.run {
+                switch result {
+                case .permissionDenied:
+                    self.calendarSuggestedProfileID = nil
+                    self.calendarStatusText = "Календарь: доступ не предоставлен"
+                case .noUpcomingEvents:
+                    self.calendarSuggestedProfileID = nil
+                    self.calendarStatusText = "Календарь: ближайших встреч не найдено"
+                case .noProfileMatch:
+                    self.calendarSuggestedProfileID = nil
+                    self.calendarStatusText = "Календарь: профиль для встречи не определен"
+                case .suggestion(let suggestion):
+                    self.calendarSuggestedProfileID = suggestion.profileID
+                    let profileTitle = ProfileOption.title(for: suggestion.profileID)
+                    self.calendarStatusText = "Календарь: «\(suggestion.eventTitle)» -> \(profileTitle)"
+                    if autoApply {
+                        self.applyCalendarSuggestedProfile(automatic: true)
+                    }
+                }
+            }
+        }
+    }
+
+    func applyCalendarSuggestedProfile() {
+        applyCalendarSuggestedProfile(automatic: false)
     }
 
     func startCapture() {
@@ -408,6 +446,32 @@ public extension MainViewModel {
 }
 
 private extension MainViewModel {
+    func applyCalendarSuggestedProfile(automatic: Bool) {
+        guard let suggested = calendarSuggestedProfileID else { return }
+        guard sessionState != .capturing && sessionState != .paused else { return }
+
+        if automatic {
+            if hasManualProfileSelection {
+                return
+            }
+            if selectedProfileID != "negotiation" {
+                return
+            }
+        }
+
+        isApplyingCalendarSuggestion = true
+        selectedProfileID = suggested
+        profileSettings = .defaults(for: suggested)
+        isApplyingCalendarSuggestion = false
+
+        let profileTitle = ProfileOption.title(for: suggested)
+        if automatic {
+            calendarStatusText = "Календарь: профиль применен автоматически -> \(profileTitle)"
+        } else {
+            calendarStatusText = "Календарь: профиль применен -> \(profileTitle)"
+        }
+    }
+
     func sendActiveCardFeedback(useful: Bool, excluded: Bool) {
         guard let card = activeCard, let sessionID = currentSessionID else { return }
 
