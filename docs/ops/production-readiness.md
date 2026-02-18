@@ -5,6 +5,8 @@
 - `PYTHONPATH=backend pytest -q backend/tests` завершился без ошибок.
 - Прогон `swift test` на чистой машине с актуальным Xcode завершился без ошибок.
 - Прогнан 60-90 минутный стресс-тест (`backend/tests/stress_test.py`) и сохранён отчёт.
+- Пройден healthcheck backend: `python3 backend/main.py --healthcheck`.
+- Пройден UDS smoke-тест: `./tools/smoke_test_backend.sh`.
 - Проверен fallback сценарий LLM: при таймауте появляется fallback-карточка.
 - Проверен fallback сценарий аудио: при отсутствии сигнала SCK включается BlackHole режим.
 
@@ -32,6 +34,9 @@
 
 - Сформирован `.app` bundle.
 - Выполнен packaging backend: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/package_backend.sh`.
+- Выполнены подпись и notarization:
+  - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_macos.sh`
+  - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/docs/ops/release-macos.md`
 - Проверено, что backend запускается из `App.app/Contents/Resources/backend`.
 - Прогнан smoke-тест: старт сессии -> получение карточки -> end сессии -> экспорт отчёта.
 

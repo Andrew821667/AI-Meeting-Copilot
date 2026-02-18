@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from feedback_store import FeedbackStore
 from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
@@ -17,6 +20,8 @@ from profile_loader import apply_overrides, load_profile, profile_runtime_settin
 from session_export import export_session_json
 from session_history_store import SessionHistoryStore
 from telemetry import TelemetryCollector
+
+logger = logging.getLogger("aimc.backend")
 
 
 @dataclass
@@ -33,6 +38,60 @@ class CardFeedback:
 class ExcludePhrase:
     session_id: str
     phrase: str
+
+
+def configure_logging() -> None:
+    level_name = os.environ.get("AIMC_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+def build_runtime_error(category: str, message: str) -> dict:
+    return {
+        "type": "runtime_error",
+        "payload": {
+            "severity": "warning",
+            "category": category,
+            "message": message,
+        },
+    }
+
+
+def run_healthcheck(exports_dir: Path) -> tuple[bool, dict[str, Any]]:
+    checks: dict[str, bool] = {}
+    details: dict[str, Any] = {}
+
+    try:
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        probe = exports_dir / ".healthcheck-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        checks["exports_writable"] = True
+    except Exception as exc:
+        checks["exports_writable"] = False
+        details["exports_error"] = str(exc)
+
+    try:
+        load_profile("negotiation")
+        checks["default_profile_load"] = True
+    except Exception as exc:
+        checks["default_profile_load"] = False
+        details["profile_error"] = str(exc)
+
+    deepseek_key_present = bool(os.environ.get("AIMC_DEEPSEEK_API_KEY", "").strip())
+    details["deepseek_api_key_present"] = deepseek_key_present
+    details["llm_mode"] = "deepseek" if deepseek_key_present else "local_fallback"
+
+    ok = all(checks.values())
+    payload = {
+        "ok": ok,
+        "checks": checks,
+        "details": details,
+    }
+    return ok, payload
 
 
 class SessionRuntime:
@@ -168,6 +227,8 @@ class BackendServer:
         self.runtime = SessionRuntime(exports_dir=exports_dir)
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        peer = writer.get_extra_info("peername")
+        logger.info("Клиент подключен: %s", peer)
         try:
             while not reader.at_eof():
                 line = await reader.readline()
@@ -177,34 +238,32 @@ class BackendServer:
                 try:
                     envelope = json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError:
+                    await self._write_packets(writer, [build_runtime_error("invalid_json", "Некорректный JSON пакет")])
+                    continue
+                except UnicodeDecodeError:
+                    await self._write_packets(writer, [build_runtime_error("invalid_encoding", "Ожидался UTF-8 пакет")])
+                    continue
+
+                if not isinstance(envelope, dict):
+                    await self._write_packets(
+                        writer,
+                        [build_runtime_error("invalid_envelope", "Пакет должен быть объектом JSON")],
+                    )
                     continue
 
                 msg_type = envelope.get("type")
                 payload = envelope.get("payload", {})
+                if not isinstance(payload, dict):
+                    payload = {}
 
-                outbound = []
-                if msg_type == "session_control":
-                    outbound.extend(self._handle_session_control(payload))
-                elif msg_type == "mic_event":
-                    cards = await self.runtime.orchestrator.on_mic_event(MicEvent(**payload))
-                    outbound.extend(self._wrap_cards(cards))
-                elif msg_type == "transcript_segment":
-                    seg = TranscriptSegment(**payload)
-                    if seg.isFinal:
-                        self.runtime.transcript.append(seg)
-                    cards = await self.runtime.orchestrator.on_transcript_segment(seg)
-                    outbound.extend(self._wrap_cards(cards))
-                elif msg_type == "panic_capture":
-                    cards = await self.runtime.orchestrator.on_manual_capture()
-                    outbound.extend(self._wrap_cards(cards))
-                elif msg_type == "audio_level":
-                    await self.runtime.orchestrator.on_audio_level(AudioLevelEvent(**payload))
-                elif msg_type == "system_state":
-                    await self.runtime.orchestrator.on_system_state(SystemStateEvent(**payload))
-                elif msg_type == "card_feedback":
-                    self.runtime.record_card_feedback(CardFeedback(**payload))
-                elif msg_type == "exclude_phrase":
-                    self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
+                try:
+                    outbound = await self._dispatch_message(msg_type=msg_type, payload=payload)
+                except TypeError as exc:
+                    logger.warning("Неверная структура payload для %s: %s", msg_type, exc)
+                    outbound = [build_runtime_error("invalid_payload", f"Неверная структура payload: {msg_type}")]
+                except Exception as exc:
+                    logger.exception("Ошибка обработки сообщения %s", msg_type)
+                    outbound = [build_runtime_error("internal_error", f"Ошибка обработки события: {exc}")]
 
                 warnings = self.runtime.telemetry.consume_runtime_warnings()
                 for message in warnings:
@@ -219,13 +278,44 @@ class BackendServer:
                         }
                     )
 
-                for packet in outbound:
-                    writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
-
-                await writer.drain()
+                await self._write_packets(writer, outbound)
         finally:
+            logger.info("Клиент отключен: %s", peer)
             writer.close()
             await writer.wait_closed()
+
+    async def _dispatch_message(self, msg_type: str, payload: dict) -> list[dict]:
+        outbound = []
+        if msg_type == "session_control":
+            outbound.extend(self._handle_session_control(payload))
+        elif msg_type == "mic_event":
+            cards = await self.runtime.orchestrator.on_mic_event(MicEvent(**payload))
+            outbound.extend(self._wrap_cards(cards))
+        elif msg_type == "transcript_segment":
+            seg = TranscriptSegment(**payload)
+            if seg.isFinal:
+                self.runtime.transcript.append(seg)
+            cards = await self.runtime.orchestrator.on_transcript_segment(seg)
+            outbound.extend(self._wrap_cards(cards))
+        elif msg_type == "panic_capture":
+            cards = await self.runtime.orchestrator.on_manual_capture()
+            outbound.extend(self._wrap_cards(cards))
+        elif msg_type == "audio_level":
+            await self.runtime.orchestrator.on_audio_level(AudioLevelEvent(**payload))
+        elif msg_type == "system_state":
+            await self.runtime.orchestrator.on_system_state(SystemStateEvent(**payload))
+        elif msg_type == "card_feedback":
+            self.runtime.record_card_feedback(CardFeedback(**payload))
+        elif msg_type == "exclude_phrase":
+            self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
+        else:
+            outbound.append(build_runtime_error("unknown_event", f"Неизвестный тип события: {msg_type}"))
+        return outbound
+
+    async def _write_packets(self, writer: asyncio.StreamWriter, packets: list[dict]) -> None:
+        for packet in packets:
+            writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
+        await writer.drain()
 
     def _handle_session_control(self, payload: dict) -> list[dict]:
         event = payload.get("event")
@@ -260,25 +350,50 @@ class BackendServer:
 
 
 async def run(socket_path: str, exports_dir: Path) -> None:
-    if os.path.exists(socket_path):
-        os.remove(socket_path)
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    socket = Path(socket_path)
+    socket.parent.mkdir(parents=True, exist_ok=True)
+    if socket.exists():
+        socket.unlink()
 
     server = BackendServer(exports_dir=exports_dir)
-    uds = await asyncio.start_unix_server(server.handle_client, path=socket_path)
+    uds = await asyncio.start_unix_server(server.handle_client, path=str(socket))
 
-    async with uds:
-        await uds.serve_forever()
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    logger.info("Backend UDS запущен: %s", socket)
+    try:
+        async with uds:
+            await stop_event.wait()
+    finally:
+        uds.close()
+        await uds.wait_closed()
+        if socket.exists():
+            socket.unlink()
+        logger.info("Backend UDS остановлен: %s", socket)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backend-сервис AI Meeting Copilot")
-    parser.add_argument("--socket", required=True, help="Путь к Unix Domain Socket")
+    parser.add_argument("--socket", default="/tmp/ai-meeting-copilot.sock", help="Путь к Unix Domain Socket")
     parser.add_argument("--exports-dir", default="exports", help="Каталог для экспорта сессий")
+    parser.add_argument("--healthcheck", action="store_true", help="Проверить готовность backend и выйти")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
+    configure_logging()
     args = parse_args()
+    if args.healthcheck:
+        ok, payload = run_healthcheck(Path(args.exports_dir))
+        print(json.dumps(payload, ensure_ascii=False))
+        raise SystemExit(0 if ok else 1)
     try:
         asyncio.run(run(args.socket, Path(args.exports_dir)))
     except KeyboardInterrupt:

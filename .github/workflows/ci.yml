@@ -31,6 +31,15 @@ jobs:
         run: |
           python -m py_compile backend/*.py
 
+      - name: Backend healthcheck
+        run: |
+          python backend/main.py --healthcheck --exports-dir /tmp/aimc-healthcheck
+
+      - name: Backend smoke test (UDS)
+        run: |
+          chmod +x tools/smoke_test_backend.sh
+          ./tools/smoke_test_backend.sh
+
   swift-tests:
     name: Swift tests
     runs-on: macos-14

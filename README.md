@@ -4,10 +4,12 @@ macOS-приложение для realtime-подсказок на онлайн-
 
 ## Текущий статус
 
-- Закрыты этапы 0-22 дорожной карты.
+- Закрыты этапы 0-23 дорожной карты.
 - Внедрены fallback-механизмы для LLM и аудио.
 - Подключён CI для Python и Swift тестов.
-- Добавлен production-checklist: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/docs/ops/production-readiness.md`.
+- Добавлены healthcheck и UDS smoke-тест backend.
+- Добавлены релизные скрипты подписи/notarization macOS.
+- Production-checklist: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/docs/ops/production-readiness.md`.
 
 ## Быстрый запуск backend (dev)
 
@@ -22,6 +24,10 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 
 Переменные окружения для DeepSeek:
 - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/backend/.env.example`
+
+Операционные инструменты:
+- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/smoke_test_backend.sh`
+- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_macos.sh`
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -52,3 +58,4 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 - docs/process/stage-20-report.md
 - docs/process/stage-21-report.md
 - docs/process/stage-22-report.md
+- docs/process/stage-23-report.md
