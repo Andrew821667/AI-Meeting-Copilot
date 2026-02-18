@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-meeting-copilot.local/schemas/events.schema.json",
+  "title": "AI Meeting Copilot Events",
+  "oneOf": [
+    { "$ref": "#/$defs/MicEvent" },
+    { "$ref": "#/$defs/TranscriptSegment" },
+    { "$ref": "#/$defs/SystemStateEvent" },
+    { "$ref": "#/$defs/AudioLevelEvent" }
+  ],
+  "$defs": {
+    "Common": {
+      "type": "object",
+      "required": ["schema_version", "seq"],
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "seq": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "MicEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/Common" },
+        {
+          "type": "object",
+          "required": ["event_type", "timestamp", "confidence", "duration"],
+          "properties": {
+            "event_type": {
+              "type": "string",
+              "enum": ["speech_start", "speech_end", "speech_state"]
+            },
+            "timestamp": { "type": "number", "minimum": 0 },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "duration": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TranscriptSegment": {
+      "allOf": [
+        { "$ref": "#/$defs/Common" },
+        {
+          "type": "object",
+          "required": [
+            "utterance_id",
+            "is_final",
+            "speaker",
+            "text",
+            "ts_start",
+            "ts_end",
+            "speaker_confidence"
+          ],
+          "properties": {
+            "utterance_id": { "type": "string", "minLength": 1 },
+            "is_final": { "type": "boolean" },
+            "speaker": { "type": "string", "enum": ["THEM", "THEM_A", "THEM_B"] },
+            "text": { "type": "string" },
+            "ts_start": { "type": "number", "minimum": 0 },
+            "ts_end": { "type": "number", "minimum": 0 },
+            "speaker_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SystemStateEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/Common" },
+        {
+          "type": "object",
+          "required": ["timestamp", "battery_level", "thermal_state"],
+          "properties": {
+            "timestamp": { "type": "number", "minimum": 0 },
+            "battery_level": { "type": "number", "minimum": 0, "maximum": 1 },
+            "thermal_state": {
+              "type": "string",
+              "enum": ["nominal", "fair", "serious", "critical"]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AudioLevelEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/Common" },
+        {
+          "type": "object",
+          "required": ["timestamp", "mic_rms", "system_rms"],
+          "properties": {
+            "timestamp": { "type": "number", "minimum": 0 },
+            "mic_rms": { "type": "number", "minimum": 0, "maximum": 1 },
+            "system_rms": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
