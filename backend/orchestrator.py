@@ -19,7 +19,7 @@ class TriggerOrchestrator:
         self.profile = profile
         self.raw_buffer = RawBuffer(max_duration_sec=300)
         self.scorer = TriggerScorer(profile)
-        self.llm = RealtimeLLMClient(timeout_sec=3.0)
+        self.llm = RealtimeLLMClient.from_env(timeout_sec=3.0)
         self.telemetry = telemetry or TelemetryCollector()
 
         self.mic_speaking = False

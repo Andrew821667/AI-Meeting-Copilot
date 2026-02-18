@@ -1,9 +1,27 @@
 # AI-Meeting-Copilot
 
-Project bootstrap for a macOS realtime meeting copilot.
+macOS-приложение для realtime-подсказок на онлайн-встречах.
 
-## Current status
-Stage 21 completed: all remaining roadmap blocks are implemented in a single delivery pass.
+## Текущий статус
+
+- Закрыты этапы 0-22 дорожной карты.
+- Внедрены fallback-механизмы для LLM и аудио.
+- Подключён CI для Python и Swift тестов.
+- Добавлен production-checklist: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/docs/ops/production-readiness.md`.
+
+## Быстрый запуск backend (dev)
+
+```bash
+cd "/Users/andrew/Мои AI проекты/AI-Meeting-Copilot"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=backend pytest -q backend/tests
+python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
+```
+
+Переменные окружения для DeepSeek:
+- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/backend/.env.example`
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -33,3 +51,4 @@ Stage 21 completed: all remaining roadmap blocks are implemented in a single del
 - docs/process/stage-19-report.md
 - docs/process/stage-20-report.md
 - docs/process/stage-21-report.md
+- docs/process/stage-22-report.md
