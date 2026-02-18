@@ -226,6 +226,11 @@ public struct ContentView: View {
                 Text("Отчёт: \(summary.reportMDPath)")
                     .font(.caption)
                     .textSelection(.enabled)
+                if let reportPDFPath = summary.reportPDFPath, !reportPDFPath.isEmpty {
+                    Text("PDF: \(reportPDFPath)")
+                        .font(.caption)
+                        .textSelection(.enabled)
+                }
             }
 
             Spacer()

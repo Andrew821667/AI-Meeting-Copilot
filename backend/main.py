@@ -11,6 +11,7 @@ from pathlib import Path
 from feedback_store import FeedbackStore
 from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
+from pdf_export import export_report_pdf
 from postfactum import build_markdown_report
 from profile_loader import apply_overrides, load_profile, profile_runtime_settings
 from session_export import export_session_json
@@ -134,14 +135,18 @@ class SessionRuntime:
         )
         report_path = self.exports_dir / f"{self.session_id}-report.md"
         report_path.write_text(report_md, encoding="utf-8")
+        report_pdf_path = export_report_pdf(report_path, self.session_id)
 
-        return {
+        summary = {
             "session_id": self.session_id,
             "profile": self.profile.id,
             "export_json_path": str(json_path),
             "report_md_path": str(report_path),
             "metrics": metrics,
         }
+        if report_pdf_path is not None:
+            summary["report_pdf_path"] = str(report_pdf_path)
+        return summary
 
 
 class BackendServer:

@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 7 completed: learning mode feedback and profile-level exclude list are integrated.
+Stage 8 completed: PDF export for session reports is integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -19,3 +19,4 @@ Stage 7 completed: learning mode feedback and profile-level exclude list are int
 - docs/process/stage-5-report.md
 - docs/process/stage-6-report.md
 - docs/process/stage-7-report.md
+- docs/process/stage-8-report.md
