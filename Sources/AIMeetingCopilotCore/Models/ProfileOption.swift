@@ -17,4 +17,8 @@ public struct ProfileOption: Identifiable, Hashable {
         .init(id: "sales", title: "Продажа / демо"),
         .init(id: "tech_sync", title: "Технический созвон")
     ]
+
+    public static func title(for id: String) -> String {
+        all.first(where: { $0.id == id })?.title ?? id
+    }
 }

@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 5 completed: Russian-first user experience and profile selection are integrated.
+Stage 6 completed: profile runtime editor and session history viewer are integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -17,3 +17,4 @@ Stage 5 completed: Russian-first user experience and profile selection are integ
 - docs/process/stage-3-report.md
 - docs/process/stage-4-report.md
 - docs/process/stage-5-report.md
+- docs/process/stage-6-report.md

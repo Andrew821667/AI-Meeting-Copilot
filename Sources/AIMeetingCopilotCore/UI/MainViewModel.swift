@@ -19,11 +19,13 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var isCardCollapsed = false
 
     @Published public private(set) var lastSessionSummary: SessionSummary?
+    @Published public private(set) var sessionHistory: [SessionHistoryItem] = []
     @Published public var errorMessage: String?
 
     @Published public var selectedProfileID: String = "negotiation"
-    public let availableProfiles: [ProfileOption] = ProfileOption.all
+    @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
 
+    public let availableProfiles: [ProfileOption] = ProfileOption.all
     public let permissionsManager: PermissionsManager
 
     private let stateMachine = SessionStateMachine()
@@ -34,6 +36,7 @@ public final class MainViewModel: ObservableObject {
 
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
+    private let historyStore = SessionHistoryStore()
 
     private var transcriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
@@ -50,6 +53,8 @@ public final class MainViewModel: ObservableObject {
         self.permissionsManager = permissionsManager
 
         onboardingReady = permissionsManager.checklist.isReadyForCapture
+        profileSettings = .defaults(for: selectedProfileID)
+        sessionHistory = historyStore.loadHistory()
 
         micCaptureService.onMicEvent = { [weak self] event in
             guard let self else { return }
@@ -70,6 +75,7 @@ public final class MainViewModel: ObservableObject {
 
         udsClient.onSessionSummary = { [weak self] summary in
             self?.lastSessionSummary = summary
+            self?.reloadSessionHistory()
         }
 
         udsClient.onSessionAck = { _ in }
@@ -86,13 +92,32 @@ public final class MainViewModel: ObservableObject {
                 self?.onboardingReady = checklist.isReadyForCapture
             }
             .store(in: &cancellables)
+
+        $selectedProfileID
+            .dropFirst()
+            .sink { [weak self] profileID in
+                guard let self else { return }
+                if self.sessionState == .capturing || self.sessionState == .paused {
+                    return
+                }
+                self.profileSettings = .defaults(for: profileID)
+            }
+            .store(in: &cancellables)
     }
 }
 
 private struct SessionControlPayload: Codable {
     let event: String
-    let session_id: String
+    let sessionID: String
     let profile: String
+    let profileOverrides: ProfileRuntimeSettings?
+
+    enum CodingKeys: String, CodingKey {
+        case event
+        case sessionID = "session_id"
+        case profile
+        case profileOverrides = "profile_overrides"
+    }
 }
 
 private struct PanicPayload: Codable {
@@ -114,6 +139,14 @@ public extension MainViewModel {
 
     func requestScreenPermission() {
         _ = permissionsManager.requestScreenRecordingPermission()
+    }
+
+    func reloadSessionHistory() {
+        sessionHistory = historyStore.loadHistory()
+    }
+
+    func resetProfileSettingsToDefaults() {
+        profileSettings = .defaults(for: selectedProfileID)
     }
 
     func startCapture() {
@@ -143,8 +176,9 @@ public extension MainViewModel {
                     type: "session_control",
                     payload: SessionControlPayload(
                         event: "start",
-                        session_id: sessionID.uuidString,
-                        profile: selectedProfileID
+                        sessionID: sessionID.uuidString,
+                        profile: selectedProfileID,
+                        profileOverrides: profileSettings
                     )
                 )
 
@@ -171,8 +205,9 @@ public extension MainViewModel {
                         type: "session_control",
                         payload: SessionControlPayload(
                             event: "pause",
-                            session_id: currentSessionID.uuidString,
-                            profile: selectedProfileID
+                            sessionID: currentSessionID.uuidString,
+                            profile: selectedProfileID,
+                            profileOverrides: nil
                         )
                     )
                 }
@@ -204,8 +239,9 @@ public extension MainViewModel {
                         type: "session_control",
                         payload: SessionControlPayload(
                             event: "resume",
-                            session_id: currentSessionID.uuidString,
-                            profile: selectedProfileID
+                            sessionID: currentSessionID.uuidString,
+                            profile: selectedProfileID,
+                            profileOverrides: nil
                         )
                     )
                 }
@@ -240,8 +276,9 @@ public extension MainViewModel {
                     type: "session_control",
                     payload: SessionControlPayload(
                         event: "end",
-                        session_id: currentSessionID.uuidString,
-                        profile: selectedProfileID
+                        sessionID: currentSessionID.uuidString,
+                        profile: selectedProfileID,
+                        profileOverrides: nil
                     )
                 )
             }

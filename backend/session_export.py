@@ -17,6 +17,7 @@ def export_session_json(
     cards: list[InsightCard],
     meeting_memory: dict,
     metrics: dict,
+    settings: dict,
 ) -> Path:
     exports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -29,12 +30,7 @@ def export_session_json(
         "cards_shown": [asdict(x) for x in cards],
         "meeting_memory": meeting_memory,
         "metrics": metrics,
-        "settings": {
-            "threshold": 0.60,
-            "deepfilter_enabled": False,
-            "emotion_enabled": False,
-            "semantic_enabled": False,
-        },
+        "settings": settings,
     }
 
     target = exports_dir / f"{session_id}.json"

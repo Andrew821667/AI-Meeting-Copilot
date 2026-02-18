@@ -10,7 +10,7 @@ from pathlib import Path
 from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from postfactum import build_markdown_report
-from profile_loader import load_profile
+from profile_loader import apply_overrides, load_profile, profile_runtime_settings
 from session_export import export_session_json
 from telemetry import TelemetryCollector
 
@@ -19,6 +19,7 @@ class SessionRuntime:
     def __init__(self, exports_dir: Path) -> None:
         self.exports_dir = exports_dir
         self.profile = load_profile("negotiation")
+        self.profile_settings = profile_runtime_settings(self.profile)
         self.telemetry = TelemetryCollector()
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
 
@@ -30,13 +31,14 @@ class SessionRuntime:
         self.transcript: list[TranscriptSegment] = []
         self.cards = []
 
-    def start(self, session_id: str, profile: str) -> None:
+    def start(self, session_id: str, profile: str, profile_overrides: dict | None = None) -> None:
         self.session_id = session_id
         self.started_at = time.time()
         self.ended_at = 0.0
         self.active = True
 
-        self.profile = load_profile(profile)
+        self.profile = apply_overrides(load_profile(profile), profile_overrides)
+        self.profile_settings = profile_runtime_settings(self.profile)
         self.telemetry = TelemetryCollector()
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
         self.orchestrator.set_paused(False)
@@ -67,6 +69,7 @@ class SessionRuntime:
             cards=self.cards,
             meeting_memory=meeting_memory,
             metrics=metrics,
+            settings=self.profile_settings,
         )
 
         report_md = build_markdown_report(
@@ -139,9 +142,10 @@ class BackendServer:
         event = payload.get("event")
         session_id = payload.get("session_id", "")
         profile = payload.get("profile", "negotiation")
+        profile_overrides = payload.get("profile_overrides")
 
         if event == "start":
-            self.runtime.start(session_id=session_id, profile=profile)
+            self.runtime.start(session_id=session_id, profile=profile, profile_overrides=profile_overrides)
             return [{"type": "session_ack", "payload": {"event": "start", "session_id": session_id}}]
 
         if event == "pause":

@@ -53,7 +53,7 @@ class ReplayMode:
                 reason = "дубликат реплики"
             elif (segment.tsEnd - last_trigger_ts) < profile.cooldown_sec:
                 triggered = False
-                reason = "cooldown"
+                reason = "пауза между срабатываниями"
 
             if triggered:
                 last_trigger_ts = segment.tsEnd

@@ -179,3 +179,32 @@ def load_negotiation_profile() -> Profile:
 
 def list_profiles() -> list[str]:
     return list(_PROFILES.keys())
+
+
+def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
+    if not overrides:
+        return profile
+
+    # Defensive copy of profile object with optional runtime overrides.
+    return Profile(
+        id=profile.id,
+        threshold=float(overrides.get("threshold", profile.threshold)),
+        cooldown_sec=float(overrides.get("cooldown_sec", profile.cooldown_sec)),
+        max_cards_per_10min=int(overrides.get("max_cards_per_10min", profile.max_cards_per_10min)),
+        min_pause_sec=float(overrides.get("min_pause_sec", profile.min_pause_sec)),
+        min_context_min=int(overrides.get("min_context_min", profile.min_context_min)),
+        card_mode=profile.card_mode,
+        trigger_vocab=profile.trigger_vocab,
+        negative_rules=profile.negative_rules,
+    )
+
+
+def profile_runtime_settings(profile: Profile) -> dict:
+    return {
+        "threshold": profile.threshold,
+        "cooldown_sec": profile.cooldown_sec,
+        "max_cards_per_10min": profile.max_cards_per_10min,
+        "min_pause_sec": profile.min_pause_sec,
+        "min_context_min": profile.min_context_min,
+        "card_mode": profile.card_mode,
+    }

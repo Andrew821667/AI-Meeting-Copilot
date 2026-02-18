@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct ContentView: View {
     @StateObject private var viewModel = MainViewModel()
+    @State private var showProfileEditor = false
 
     public init() {}
 
@@ -25,10 +26,26 @@ public struct ContentView: View {
             }
 
             sidebar
-                .frame(width: 340)
+                .frame(width: 380)
         }
         .padding(16)
-        .frame(minWidth: 1160, minHeight: 720)
+        .frame(minWidth: 1240, minHeight: 760)
+        .sheet(isPresented: $showProfileEditor) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Параметры профиля")
+                    .font(.title3.weight(.semibold))
+                Text(ProfileOption.title(for: viewModel.selectedProfileID))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                ProfileSettingsEditorView(settings: $viewModel.profileSettings) {
+                    viewModel.resetProfileSettingsToDefaults()
+                }
+            }
+            .padding(16)
+        }
+        .onAppear {
+            viewModel.reloadSessionHistory()
+        }
     }
 
     private var header: some View {
@@ -47,7 +64,12 @@ public struct ContentView: View {
                     Text(profile.title).tag(profile.id)
                 }
             }
-            .frame(width: 280)
+            .frame(width: 300)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            Button("Настроить профиль") {
+                showProfileEditor = true
+            }
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Button("Начать захват") {
@@ -156,9 +178,44 @@ public struct ContentView: View {
                 }
             }
 
+            Divider()
+
+            HStack {
+                Text("История сессий")
+                    .font(.headline)
+                Spacer()
+                Button("Обновить") {
+                    viewModel.reloadSessionHistory()
+                }
+                .font(.caption)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.sessionHistory.prefix(10)) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(ProfileOption.title(for: item.profileID))
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(formattedDate(item.endedAt)) • карточек: \(item.totalCards), резервных: \(item.fallbackCards)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(item.exportPath)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
+
             if let summary = viewModel.lastSessionSummary {
                 Divider()
-                Text("Экспорт сессии")
+                Text("Экспорт текущей сессии")
                     .font(.headline)
                 Text("JSON: \(summary.exportJSONPath)")
                     .font(.caption)
@@ -189,5 +246,13 @@ public struct ContentView: View {
         case "ME": return "Я"
         default: return speaker
         }
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }

@@ -46,6 +46,7 @@ def test_export_session_json(tmp_path: Path) -> None:
         cards=cards,
         meeting_memory=memory,
         metrics=metrics,
+        settings={"threshold": 0.6},
     )
 
     assert path.exists()
