@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 11 completed: compliance onboarding v2 (versioned consent) is integrated.
+Stage 12 completed: profile-level exclude list editor is integrated in UI.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -23,3 +23,4 @@ Stage 11 completed: compliance onboarding v2 (versioned consent) is integrated.
 - docs/process/stage-9-report.md
 - docs/process/stage-10-report.md
 - docs/process/stage-11-report.md
+- docs/process/stage-12-report.md

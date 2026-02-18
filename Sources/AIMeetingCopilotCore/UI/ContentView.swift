@@ -3,6 +3,8 @@ import SwiftUI
 public struct ContentView: View {
     @StateObject private var viewModel = MainViewModel()
     @State private var showProfileEditor = false
+    @State private var showExcludeEditor = false
+    @State private var excludeDraft = ""
 
     public init() {}
 
@@ -44,9 +46,55 @@ public struct ContentView: View {
             }
             .padding(16)
         }
+        .sheet(isPresented: $showExcludeEditor) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Исключения триггеров")
+                    .font(.title3.weight(.semibold))
+                Text(ProfileOption.title(for: viewModel.selectedProfileID))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    TextField("Фраза для исключения", text: $excludeDraft)
+                    Button("Добавить") {
+                        let value = excludeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !value.isEmpty else { return }
+                        viewModel.addManualExcludedPhrase(value)
+                        excludeDraft = ""
+                    }
+                }
+
+                if viewModel.excludedPhrases.isEmpty {
+                    Text("Список исключений пуст.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    List {
+                        ForEach(Array(viewModel.excludedPhrases.enumerated()), id: \.offset) { item in
+                            let phrase = item.element
+                            HStack {
+                                Text(phrase)
+                                Spacer()
+                                Button("Удалить") {
+                                    viewModel.removeManualExcludedPhrase(phrase)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                    .frame(minHeight: 220)
+                }
+            }
+            .padding(16)
+            .frame(minWidth: 620, minHeight: 360)
+            .onAppear {
+                viewModel.reloadExcludedPhrases()
+            }
+        }
         .onAppear {
             viewModel.reloadSessionHistory()
             viewModel.refreshCalendarSuggestion(autoApply: true)
+            viewModel.reloadExcludedPhrases()
         }
     }
 
@@ -71,6 +119,12 @@ public struct ContentView: View {
 
             Button("Настроить профиль") {
                 showProfileEditor = true
+            }
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            Button("Исключения профиля") {
+                viewModel.reloadExcludedPhrases()
+                showExcludeEditor = true
             }
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 

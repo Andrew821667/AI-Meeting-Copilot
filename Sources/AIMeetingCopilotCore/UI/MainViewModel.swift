@@ -20,6 +20,7 @@ public final class MainViewModel: ObservableObject {
 
     @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public private(set) var sessionHistory: [SessionHistoryItem] = []
+    @Published public private(set) var excludedPhrases: [String] = []
     @Published public var errorMessage: String?
     @Published public private(set) var calendarStatusText: String = "Календарь: не проверен"
     @Published public private(set) var calendarSuggestedProfileID: String?
@@ -39,6 +40,7 @@ public final class MainViewModel: ObservableObject {
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
     private let historyStore = SessionHistoryStore()
+    private let excludePhraseStore = ExcludePhraseStore()
     private let calendarSuggester = CalendarProfileSuggester()
 
     private var transcriptTask: Task<Void, Never>?
@@ -60,6 +62,7 @@ public final class MainViewModel: ObservableObject {
         onboardingReady = permissionsManager.checklist.isReadyForCapture
         profileSettings = .defaults(for: selectedProfileID)
         sessionHistory = historyStore.loadHistory()
+        excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
 
         micCaptureService.onMicEvent = { [weak self] event in
             guard let self else { return }
@@ -109,6 +112,7 @@ public final class MainViewModel: ObservableObject {
                     self.hasManualProfileSelection = true
                 }
                 self.profileSettings = .defaults(for: profileID)
+                self.reloadExcludedPhrases()
             }
             .store(in: &cancellables)
     }
@@ -179,6 +183,28 @@ public extension MainViewModel {
 
     func reloadSessionHistory() {
         sessionHistory = historyStore.loadHistory()
+    }
+
+    func reloadExcludedPhrases() {
+        excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
+    }
+
+    func addManualExcludedPhrase(_ phrase: String) {
+        let ok = excludePhraseStore.add(profileID: selectedProfileID, phrase: phrase)
+        if ok {
+            reloadExcludedPhrases()
+        } else {
+            errorMessage = "Не удалось добавить исключение: фраза слишком короткая или недоступна база."
+        }
+    }
+
+    func removeManualExcludedPhrase(_ phrase: String) {
+        let ok = excludePhraseStore.remove(profileID: selectedProfileID, phrase: phrase)
+        if ok {
+            reloadExcludedPhrases()
+        } else {
+            errorMessage = "Не удалось удалить исключение."
+        }
     }
 
     func resetProfileSettingsToDefaults() {
@@ -419,6 +445,8 @@ public extension MainViewModel {
         replaceRecent(card)
 
         let phrase = extractExcludePhrase(from: card)
+        _ = excludePhraseStore.add(profileID: selectedProfileID, phrase: phrase)
+        reloadExcludedPhrases()
         Task {
             do {
                 try await udsClient.send(
