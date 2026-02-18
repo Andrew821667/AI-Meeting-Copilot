@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 10 completed: session history is indexed and loaded via SQLite.
+Stage 11 completed: compliance onboarding v2 (versioned consent) is integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -22,3 +22,4 @@ Stage 10 completed: session history is indexed and loaded via SQLite.
 - docs/process/stage-8-report.md
 - docs/process/stage-9-report.md
 - docs/process/stage-10-report.md
+- docs/process/stage-11-report.md

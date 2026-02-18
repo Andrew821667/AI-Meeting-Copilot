@@ -24,26 +24,38 @@ public struct OnboardingChecklistState {
 
 @MainActor
 public final class PermissionsManager: ObservableObject {
+    public static let currentConsentVersion = 2
+
     @Published public private(set) var checklist: OnboardingChecklistState
 
-    private let consentDefaultsKey = "consent_ack_v1"
+    private let consentVersionDefaultsKey = "consent_ack_version"
+    private let legacyConsentDefaultsKey = "consent_ack_v1"
     private let defaults: UserDefaults
+    private let microphoneStatusProvider: () -> AVAuthorizationStatus
+    private let screenRecordingStatusProvider: () -> Bool
 
-    public init(defaults: UserDefaults = .standard) {
+    public init(
+        defaults: UserDefaults = .standard,
+        microphoneStatusProvider: @escaping () -> AVAuthorizationStatus = { AVCaptureDevice.authorizationStatus(for: .audio) },
+        screenRecordingStatusProvider: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() }
+    ) {
         self.defaults = defaults
+        self.microphoneStatusProvider = microphoneStatusProvider
+        self.screenRecordingStatusProvider = screenRecordingStatusProvider
         self.checklist = OnboardingChecklistState(
             microphonePermissionGranted: false,
             screenRecordingPermissionGranted: false,
-            oneTimeAcknowledgementAccepted: defaults.bool(forKey: consentDefaultsKey)
+            oneTimeAcknowledgementAccepted: false
         )
         refresh()
     }
 
     public func refresh() {
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        migrateLegacyConsentIfNeeded()
+        let micStatus = microphoneStatusProvider()
         let micGranted = (micStatus == .authorized)
-        let screenGranted = CGPreflightScreenCaptureAccess()
-        let consent = defaults.bool(forKey: consentDefaultsKey)
+        let screenGranted = screenRecordingStatusProvider()
+        let consent = defaults.integer(forKey: consentVersionDefaultsKey) >= Self.currentConsentVersion
 
         checklist = OnboardingChecklistState(
             microphonePermissionGranted: micGranted,
@@ -67,7 +79,19 @@ public final class PermissionsManager: ObservableObject {
     }
 
     public func acceptOneTimeAcknowledgement() {
-        defaults.set(true, forKey: consentDefaultsKey)
+        defaults.set(Self.currentConsentVersion, forKey: consentVersionDefaultsKey)
+        defaults.set(true, forKey: legacyConsentDefaultsKey)
         refresh()
+    }
+
+    private func migrateLegacyConsentIfNeeded() {
+        let acceptedVersion = defaults.integer(forKey: consentVersionDefaultsKey)
+        if acceptedVersion > 0 {
+            return
+        }
+
+        if defaults.bool(forKey: legacyConsentDefaultsKey) {
+            defaults.set(1, forKey: consentVersionDefaultsKey)
+        }
     }
 }

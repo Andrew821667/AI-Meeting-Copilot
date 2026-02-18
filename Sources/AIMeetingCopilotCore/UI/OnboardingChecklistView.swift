@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct OnboardingChecklistView: View {
     @ObservedObject private var viewModel: MainViewModel
+    @State private var consentChecked = false
 
     public init(viewModel: MainViewModel) {
         self.viewModel = viewModel
@@ -27,6 +28,13 @@ public struct OnboardingChecklistView: View {
                 granted: viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted
             )
 
+            Toggle(
+                "Я подтверждаю, что имею право записывать и анализировать встречи в своих сценариях использования.",
+                isOn: $consentChecked
+            )
+            .toggleStyle(.checkbox)
+            .disabled(viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted)
+
             HStack(spacing: 10) {
                 Button("Запросить доступ к микрофону") {
                     Task { await viewModel.requestMicPermission() }
@@ -37,12 +45,13 @@ public struct OnboardingChecklistView: View {
                 Button("Подтвердить согласие") {
                     viewModel.acceptAcknowledgement()
                 }
+                .disabled(!consentChecked || viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted)
                 Button("Обновить статус") {
                     viewModel.refreshPermissions()
                 }
             }
 
-            Text("Во время встречи используются только локальный индикатор захвата и карточки-подсказки. Всплывающие уведомления отключены.")
+            Text("Согласие версии v\(PermissionsManager.currentConsentVersion) сохраняется локально. Во время встречи показывается только локальный индикатор CAPTURE; всплывающие уведомления отключены.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -50,6 +59,11 @@ public struct OnboardingChecklistView: View {
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onAppear {
+            if viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted {
+                consentChecked = true
+            }
+        }
     }
 
     @ViewBuilder
