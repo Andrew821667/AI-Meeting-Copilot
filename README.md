@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 2 completed: Swift-to-Python orchestration path over UDS is integrated with insight card flow.
+Stage 3 completed: telemetry, session export/report, and pause/resume lifecycle are integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -14,3 +14,4 @@ Stage 2 completed: Swift-to-Python orchestration path over UDS is integrated wit
 - docs/process/stage-gates.md
 - docs/process/stage-1-report.md
 - docs/process/stage-2-report.md
+- docs/process/stage-3-report.md

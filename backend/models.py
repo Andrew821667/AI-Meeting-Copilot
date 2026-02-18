@@ -27,6 +27,24 @@ class TranscriptSegment:
 
 
 @dataclass
+class SystemStateEvent:
+    schemaVersion: int
+    seq: int
+    timestamp: float
+    batteryLevel: float
+    thermalState: str
+
+
+@dataclass
+class AudioLevelEvent:
+    schemaVersion: int
+    seq: int
+    timestamp: float
+    micRms: float
+    systemRms: float
+
+
+@dataclass
 class RawBufferEntry:
     speaker: str
     text: str
@@ -50,6 +68,7 @@ class InsightCard:
     dismissed: bool = False
     pinned: bool = False
     excluded: bool = False
+    source_ts_end: float = 0.0
 
     def to_wire(self) -> dict:
         return asdict(self)

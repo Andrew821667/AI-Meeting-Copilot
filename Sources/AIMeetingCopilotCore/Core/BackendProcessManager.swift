@@ -29,7 +29,8 @@ public actor BackendProcessManager {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", backendPath, "--socket", socket]
+        let exportsDir = ((FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports"))
+        process.arguments = ["python3", backendPath, "--socket", socket, "--exports-dir", exportsDir]
 
         let outputPipe = Pipe()
         process.standardOutput = outputPipe

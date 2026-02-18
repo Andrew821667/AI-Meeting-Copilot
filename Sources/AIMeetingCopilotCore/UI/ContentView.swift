@@ -45,7 +45,17 @@ public struct ContentView: View {
             Button("Start Capture") {
                 viewModel.startCapture()
             }
-            .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing)
+            .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            Button("Pause") {
+                viewModel.pauseCapture()
+            }
+            .disabled(viewModel.sessionState != .capturing)
+
+            Button("Resume") {
+                viewModel.resumeCapture()
+            }
+            .disabled(viewModel.sessionState != .paused)
 
             Button("Stop Capture") {
                 viewModel.stopCapture()
@@ -136,6 +146,18 @@ public struct ContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }
+            }
+
+            if let summary = viewModel.lastSessionSummary {
+                Divider()
+                Text("Session Export")
+                    .font(.headline)
+                Text(summary.exportJSONPath)
+                    .font(.caption)
+                    .textSelection(.enabled)
+                Text(summary.reportMDPath)
+                    .font(.caption)
+                    .textSelection(.enabled)
             }
 
             Spacer()

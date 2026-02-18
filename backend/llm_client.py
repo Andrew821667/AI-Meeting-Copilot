@@ -1,26 +1,48 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
+from dataclasses import dataclass
 
 from models import InsightCard
+
+
+@dataclass
+class LLMCallResult:
+    card: InsightCard
+    latency_ms: float
+    timed_out: bool
 
 
 class RealtimeLLMClient:
     def __init__(self, timeout_sec: float = 3.0) -> None:
         self.timeout_sec = timeout_sec
 
-    async def build_card(self, scenario: str, speaker: str, trigger_reason: str, context: str) -> InsightCard:
+    async def build_card(self, scenario: str, speaker: str, trigger_reason: str, context: str, source_ts_end: float) -> LLMCallResult:
+        started = time.perf_counter()
         try:
-            return await asyncio.wait_for(
-                self._generate_card(scenario=scenario, speaker=speaker, trigger_reason=trigger_reason, context=context),
+            card = await asyncio.wait_for(
+                self._generate_card(
+                    scenario=scenario,
+                    speaker=speaker,
+                    trigger_reason=trigger_reason,
+                    context=context,
+                    source_ts_end=source_ts_end,
+                ),
                 timeout=self.timeout_sec,
             )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
         except asyncio.TimeoutError:
-            return self._fallback_card(scenario=scenario, speaker=speaker, trigger_reason=trigger_reason)
+            card = self._fallback_card(
+                scenario=scenario,
+                speaker=speaker,
+                trigger_reason=trigger_reason,
+                source_ts_end=source_ts_end,
+            )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=True)
 
-    async def _generate_card(self, scenario: str, speaker: str, trigger_reason: str, context: str) -> InsightCard:
-        # Local deterministic placeholder for Stage 2.
+    async def _generate_card(self, scenario: str, speaker: str, trigger_reason: str, context: str, source_ts_end: float) -> InsightCard:
         await asyncio.sleep(0.20)
         brief = context.strip().splitlines()[-1] if context.strip() else "Контекст ограничен"
         return InsightCard(
@@ -35,9 +57,10 @@ class RealtimeLLMClient:
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
             is_fallback=False,
+            source_ts_end=source_ts_end,
         )
 
-    def _fallback_card(self, scenario: str, speaker: str, trigger_reason: str) -> InsightCard:
+    def _fallback_card(self, scenario: str, speaker: str, trigger_reason: str, source_ts_end: float) -> InsightCard:
         return InsightCard(
             id=str(uuid.uuid4()),
             scenario=scenario,
@@ -50,4 +73,5 @@ class RealtimeLLMClient:
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
             is_fallback=True,
+            source_ts_end=source_ts_end,
         )

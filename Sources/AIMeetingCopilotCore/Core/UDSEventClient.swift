@@ -4,11 +4,12 @@ import Network
 public enum UDSClientError: Error {
     case connectionFailed
     case disconnected
-    case invalidResponse
 }
 
 public final class UDSEventClient {
     public var onInsightCard: ((InsightCard) -> Void)?
+    public var onSessionSummary: ((SessionSummary) -> Void)?
+    public var onSessionAck: ((String) -> Void)?
     public var onError: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "ai.meeting.copilot.uds")
@@ -118,22 +119,58 @@ public final class UDSEventClient {
     }
 
     private func handleIncomingLine(_ line: Data) {
-        struct Envelope: Codable {
+        struct Header: Decodable {
             let type: String
-            let payload: InsightCard
         }
 
-        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+        guard let header = try? JSONDecoder().decode(Header.self, from: line) else {
             onError?("UDS decode error")
             return
         }
 
-        guard envelope.type == "insight_card" else {
-            return
-        }
+        switch header.type {
+        case "insight_card":
+            struct Envelope: Decodable {
+                let type: String
+                let payload: InsightCard
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("UDS decode insight_card failed")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onInsightCard?(envelope.payload)
+            }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.onInsightCard?(envelope.payload)
+        case "session_summary":
+            struct Envelope: Decodable {
+                let type: String
+                let payload: SessionSummary
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("UDS decode session_summary failed")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onSessionSummary?(envelope.payload)
+            }
+
+        case "session_ack":
+            struct AckPayload: Decodable { let event: String }
+            struct Envelope: Decodable {
+                let type: String
+                let payload: AckPayload
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("UDS decode session_ack failed")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onSessionAck?(envelope.payload.event)
+            }
+
+        default:
+            break
         }
     }
 }

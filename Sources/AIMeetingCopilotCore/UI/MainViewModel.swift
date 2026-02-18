@@ -18,6 +18,7 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var recentCards: [InsightCard] = []
     @Published public private(set) var isCardCollapsed = false
 
+    @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public var errorMessage: String?
 
     public let permissionsManager: PermissionsManager
@@ -32,9 +33,14 @@ public final class MainViewModel: ObservableObject {
     private let udsClient = UDSEventClient()
 
     private var transcriptTask: Task<Void, Never>?
+    private var systemStateTask: Task<Void, Never>?
     private var sessionStartTime: TimeInterval = CACurrentMediaTime()
     private var currentSessionID: UUID?
     private var cancellables = Set<AnyCancellable>()
+
+    private var lastAudioLevelSentAt: TimeInterval = 0
+    private var lastThermalState: ProcessInfo.ThermalState = .nominal
+    private let telemetrySeq = SequenceNumberGenerator(startAt: 100_000)
 
     public init(asrProvider: ASRProvider = WhisperKitProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
         self.asrProvider = asrProvider
@@ -48,16 +54,22 @@ public final class MainViewModel: ObservableObject {
         }
 
         micCaptureService.onAudioLevel = { [weak self] event in
-            self?.lastMicRms = event.micRms
+            self?.handleMicAudioLevel(event)
         }
 
         systemAudioService.onAudioLevel = { [weak self] event in
-            self?.lastSystemRms = event.systemRms
+            self?.handleSystemAudioLevel(event)
         }
 
         udsClient.onInsightCard = { [weak self] card in
             self?.handleIncomingCard(card)
         }
+
+        udsClient.onSessionSummary = { [weak self] summary in
+            self?.lastSessionSummary = summary
+        }
+
+        udsClient.onSessionAck = { _ in }
 
         udsClient.onError = { [weak self] message in
             DispatchQueue.main.async {
@@ -112,7 +124,9 @@ public extension MainViewModel {
         activeCard = nil
         recentCards.removeAll(keepingCapacity: true)
         isCardCollapsed = false
+        lastSessionSummary = nil
         sessionStartTime = CACurrentMediaTime()
+        telemetrySeq.reset(to: 100_000)
 
         Task {
             do {
@@ -135,47 +149,75 @@ public extension MainViewModel {
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
 
-                transcriptTask?.cancel()
-                transcriptTask = Task {
-                    do {
-                        try await asrProvider.startStream()
-                        for await segment in asrProvider.segments {
-                            guard let filteredText = hallucinationFilter.apply(text: segment.text, vadDetectedSpeech: true) else {
-                                continue
-                            }
-
-                            let normalized = TranscriptSegment(
-                                schemaVersion: segment.schemaVersion,
-                                seq: segment.seq,
-                                utteranceId: segment.utteranceId,
-                                isFinal: segment.isFinal,
-                                speaker: segment.speaker,
-                                text: filteredText,
-                                tsStart: segment.tsStart,
-                                tsEnd: segment.tsEnd,
-                                speakerConfidence: segment.speakerConfidence
-                            )
-
-                            await MainActor.run {
-                                self.transcript.append(normalized)
-                            }
-
-                            do {
-                                try await udsClient.send(type: "transcript_segment", payload: normalized)
-                            } catch {
-                                await MainActor.run {
-                                    self.errorMessage = "Ошибка отправки transcript: \(error.localizedDescription)"
-                                }
-                            }
-                        }
-                    } catch {
-                        await MainActor.run {
-                            self.errorMessage = "ASR stream error: \(error.localizedDescription)"
-                        }
-                    }
-                }
+                startSystemStateLoop()
+                startASRStreamingTask()
             } catch {
                 errorMessage = "Не удалось запустить сессию: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func pauseCapture() {
+        Task {
+            guard sessionState == .capturing else { return }
+            do {
+                try await stateMachine.pauseCapture()
+
+                if let currentSessionID {
+                    try await udsClient.send(
+                        type: "session_control",
+                        payload: SessionControlPayload(
+                            event: "pause",
+                            session_id: currentSessionID.uuidString,
+                            profile: "negotiation"
+                        )
+                    )
+                }
+
+                await asrProvider.stopStream()
+                transcriptTask?.cancel()
+                transcriptTask = nil
+
+                micCaptureService.stopCapture()
+                systemAudioService.stopCapture()
+                stopSystemStateLoop()
+
+                sessionState = .paused
+                captureMode = .off
+            } catch {
+                errorMessage = "Ошибка паузы: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func resumeCapture() {
+        Task {
+            guard sessionState == .paused else { return }
+            do {
+                try await stateMachine.resumeCapture()
+
+                if let currentSessionID {
+                    try await udsClient.send(
+                        type: "session_control",
+                        payload: SessionControlPayload(
+                            event: "resume",
+                            session_id: currentSessionID.uuidString,
+                            profile: "negotiation"
+                        )
+                    )
+                }
+
+                await asrProvider.reset()
+                captureMode = .screenCaptureKit
+                try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
+                systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
+
+                startSystemStateLoop()
+                startASRStreamingTask()
+
+                sessionState = .capturing
+            } catch {
+                errorMessage = "Ошибка возобновления: \(error.localizedDescription)"
             }
         }
     }
@@ -188,6 +230,7 @@ public extension MainViewModel {
             await asrProvider.stopStream()
             micCaptureService.stopCapture()
             systemAudioService.stopCapture()
+            stopSystemStateLoop()
 
             if let currentSessionID {
                 try? await udsClient.send(
@@ -199,6 +242,9 @@ public extension MainViewModel {
                     )
                 )
             }
+
+            // allow backend to flush summary back via UDS
+            try? await Task.sleep(nanoseconds: 200_000_000)
 
             udsClient.disconnect()
             await backendProcessManager.stop()
@@ -254,6 +300,92 @@ public extension MainViewModel {
 }
 
 private extension MainViewModel {
+    func startASRStreamingTask() {
+        transcriptTask?.cancel()
+        transcriptTask = Task {
+            do {
+                try await asrProvider.startStream()
+                for await segment in asrProvider.segments {
+                    guard sessionState == .capturing else { break }
+                    guard let filteredText = hallucinationFilter.apply(text: segment.text, vadDetectedSpeech: true) else {
+                        continue
+                    }
+
+                    let normalized = TranscriptSegment(
+                        schemaVersion: segment.schemaVersion,
+                        seq: segment.seq,
+                        utteranceId: segment.utteranceId,
+                        isFinal: segment.isFinal,
+                        speaker: segment.speaker,
+                        text: filteredText,
+                        tsStart: segment.tsStart,
+                        tsEnd: segment.tsEnd,
+                        speakerConfidence: segment.speakerConfidence
+                    )
+
+                    await MainActor.run {
+                        self.transcript.append(normalized)
+                    }
+
+                    do {
+                        try await udsClient.send(type: "transcript_segment", payload: normalized)
+                    } catch {
+                        await MainActor.run {
+                            self.errorMessage = "Ошибка отправки transcript: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "ASR stream error: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func startSystemStateLoop() {
+        stopSystemStateLoop()
+        lastThermalState = ProcessInfo.processInfo.thermalState
+
+        systemStateTask = Task {
+            while !Task.isCancelled {
+                let event = SystemStateEvent(
+                    seq: telemetrySeq.next(),
+                    timestamp: CACurrentMediaTime() - sessionStartTime,
+                    batteryLevel: currentBatteryLevel(),
+                    thermalState: thermalStateString(ProcessInfo.processInfo.thermalState)
+                )
+
+                do {
+                    try await udsClient.send(type: "system_state", payload: event)
+                } catch {
+                    await MainActor.run {
+                        self.errorMessage = "Ошибка отправки system_state: \(error.localizedDescription)"
+                    }
+                }
+
+                let currentThermal = ProcessInfo.processInfo.thermalState
+                if currentThermal != lastThermalState {
+                    lastThermalState = currentThermal
+                    let immediate = SystemStateEvent(
+                        seq: telemetrySeq.next(),
+                        timestamp: CACurrentMediaTime() - sessionStartTime,
+                        batteryLevel: currentBatteryLevel(),
+                        thermalState: thermalStateString(currentThermal)
+                    )
+                    try? await udsClient.send(type: "system_state", payload: immediate)
+                }
+
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
+    }
+
+    func stopSystemStateLoop() {
+        systemStateTask?.cancel()
+        systemStateTask = nil
+    }
+
     func handleMicEvent(_ event: MicEvent) {
         isUserSpeaking = event.eventType != .speechEnd
 
@@ -276,6 +408,36 @@ private extension MainViewModel {
         }
     }
 
+    func handleMicAudioLevel(_ event: AudioLevelEvent) {
+        lastMicRms = event.micRms
+        sendThrottledAudioLevelIfNeeded()
+    }
+
+    func handleSystemAudioLevel(_ event: AudioLevelEvent) {
+        lastSystemRms = event.systemRms
+        sendThrottledAudioLevelIfNeeded()
+    }
+
+    func sendThrottledAudioLevelIfNeeded() {
+        guard sessionState == .capturing else { return }
+        let now = CACurrentMediaTime()
+        if (now - lastAudioLevelSentAt) < 1.0 {
+            return
+        }
+        lastAudioLevelSentAt = now
+
+        let payload = AudioLevelEvent(
+            seq: telemetrySeq.next(),
+            timestamp: now - sessionStartTime,
+            micRms: lastMicRms,
+            systemRms: lastSystemRms
+        )
+
+        Task {
+            try? await udsClient.send(type: "audio_level", payload: payload)
+        }
+    }
+
     func handleIncomingCard(_ card: InsightCard) {
         activeCard = card
         isCardCollapsed = false
@@ -290,5 +452,21 @@ private extension MainViewModel {
         if let idx = recentCards.firstIndex(where: { $0.id == card.id }) {
             recentCards[idx] = card
         }
+    }
+
+    func thermalStateString(_ state: ProcessInfo.ThermalState) -> String {
+        switch state {
+        case .nominal: return "nominal"
+        case .fair: return "fair"
+        case .serious: return "serious"
+        case .critical: return "critical"
+        @unknown default: return "fair"
+        }
+    }
+
+    func currentBatteryLevel() -> Float {
+        // macOS does not guarantee battery API in all environments.
+        // Return 1.0 as safe default when unavailable.
+        return 1.0
     }
 }
