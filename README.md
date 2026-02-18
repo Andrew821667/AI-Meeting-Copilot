@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 1 completed: audio-first Swift foundation is scaffolded and runnable in local dev toolchain.
+Stage 2 completed: Swift-to-Python orchestration path over UDS is integrated with insight card flow.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -13,3 +13,4 @@ Stage 1 completed: audio-first Swift foundation is scaffolded and runnable in lo
 - docs/process/mvp-definition-of-done.md
 - docs/process/stage-gates.md
 - docs/process/stage-1-report.md
+- docs/process/stage-2-report.md
