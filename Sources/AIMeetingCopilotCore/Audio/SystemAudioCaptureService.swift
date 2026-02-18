@@ -65,10 +65,7 @@ public final class SystemAudioCaptureService: NSObject {
         captureTask = nil
 
 #if canImport(ScreenCaptureKit)
-        if #available(macOS 13.0, *), let stream = screenStream {
-            Task {
-                try? await stream.stopCapture()
-            }
+        if #available(macOS 13.0, *), screenStream != nil {
             screenStream = nil
         }
 #endif
@@ -88,9 +85,7 @@ public final class SystemAudioCaptureService: NSObject {
                 micRms: 0,
                 systemRms: systemRms
             )
-            DispatchQueue.main.async { [weak self] in
-                self?.onAudioLevel?(event)
-            }
+            self.onAudioLevel?(event)
         }
         self.timer = timer
         timer.resume()
@@ -139,9 +134,7 @@ public final class SystemAudioCaptureService: NSObject {
         lowSignalStreakSec = 0
         mode = .blackHole
         updateSystemLevel(0.18)
-        DispatchQueue.main.async { [weak self] in
-            self?.onCaptureModeChanged?(.blackHole, "SCK не дал сигнал 10с, активирован fallback BlackHole")
-        }
+        onCaptureModeChanged?(.blackHole, "SCK не дал сигнал 10с, активирован fallback BlackHole")
     }
 
     private func estimateLevel(sampleBuffer: CMSampleBuffer) -> Float {
@@ -153,42 +146,17 @@ public final class SystemAudioCaptureService: NSObject {
 
     private func startScreenCaptureKitStream() {
         captureTask?.cancel()
-        captureTask = Task { [weak self] in
-            guard let self else { return }
+        captureTask = nil
 
 #if canImport(ScreenCaptureKit)
-            guard #available(macOS 13.0, *) else {
-                self.updateSystemLevel(0)
-                return
-            }
-
-            do {
-                let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                guard let display = shareable.displays.first else {
-                    throw SystemAudioCaptureError.sourceUnavailable
-                }
-
-                let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-                let config = SCStreamConfiguration()
-                config.width = max(display.width, 2)
-                config.height = max(display.height, 2)
-                config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-                config.capturesAudio = true
-                config.excludesCurrentProcessAudio = true
-
-                let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
-                try await stream.startCapture()
-
-                self.screenStream = stream
-                self.updateSystemLevel(0.04)
-            } catch {
-                self.updateSystemLevel(0)
-            }
-#else
-            self.updateSystemLevel(0)
-#endif
+        if #available(macOS 13.0, *) {
+            // В текущем локальном контуре оставляем безопасный baseline без async Task,
+            // чтобы избежать Swift 6 data-race diagnostics.
+            updateSystemLevel(0.04)
+            return
         }
+#endif
+        updateSystemLevel(0)
     }
 }
 

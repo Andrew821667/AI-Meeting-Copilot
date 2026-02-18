@@ -1,6 +1,6 @@
 import Foundation
 
-public enum CaptureMode: String, Codable, CaseIterable {
+public enum CaptureMode: String, Codable, CaseIterable, Sendable {
     case off = "CAPTURE_OFF"
     case screenCaptureKit = "CAPTURE_SCK"
     case blackHole = "CAPTURE_BLACKHOLE"
@@ -16,13 +16,13 @@ public enum CaptureMode: String, Codable, CaseIterable {
     }
 }
 
-public enum MicEventType: String, Codable {
+public enum MicEventType: String, Codable, Sendable {
     case speechStart = "speech_start"
     case speechEnd = "speech_end"
     case speechState = "speech_state"
 }
 
-public struct MicEvent: Codable {
+public struct MicEvent: Codable, Sendable {
     public let schemaVersion: Int
     public let seq: UInt64
     public let eventType: MicEventType
@@ -47,7 +47,7 @@ public struct MicEvent: Codable {
     }
 }
 
-public struct TranscriptSegment: Codable, Identifiable {
+public struct TranscriptSegment: Codable, Identifiable, Sendable {
     public var id: String { utteranceId + (isFinal ? ":final" : ":partial") }
 
     public let schemaVersion: Int
@@ -83,7 +83,7 @@ public struct TranscriptSegment: Codable, Identifiable {
     }
 }
 
-public struct SystemStateEvent: Codable {
+public struct SystemStateEvent: Codable, Sendable {
     public let schemaVersion: Int
     public let seq: UInt64
     public let timestamp: Double
@@ -105,7 +105,7 @@ public struct SystemStateEvent: Codable {
     }
 }
 
-public struct AudioLevelEvent: Codable {
+public struct AudioLevelEvent: Codable, Sendable {
     public let schemaVersion: Int
     public let seq: UInt64
     public let timestamp: Double

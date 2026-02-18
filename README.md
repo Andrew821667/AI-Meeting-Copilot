@@ -4,7 +4,7 @@ macOS-приложение для realtime-подсказок на онлайн-
 
 ## Текущий статус
 
-- Закрыты этапы 0-24 дорожной карты.
+- Закрыты этапы 0-25 дорожной карты.
 - Внедрены fallback-механизмы для LLM и аудио.
 - Подключён CI для Python и Swift тестов.
 - Добавлены healthcheck и UDS smoke-тест backend.
@@ -24,6 +24,15 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 
 Переменные окружения для DeepSeek:
 - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/backend/.env.example`
+
+Локально (рекомендуется, без git):
+```bash
+mkdir -p "$HOME/Library/Application Support/AIMeetingCopilot"
+cat > "$HOME/Library/Application Support/AIMeetingCopilot/.env" <<'EOF'
+AIMC_DEEPSEEK_API_KEY=your_deepseek_key_here
+AIMC_DEEPSEEK_MODEL=deepseek-chat
+EOF
+```
 
 Операционные инструменты:
 - `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/smoke_test_backend.sh`
@@ -62,3 +71,4 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 - docs/process/stage-22-report.md
 - docs/process/stage-23-report.md
 - docs/process/stage-24-report.md
+- docs/process/stage-25-report.md

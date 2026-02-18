@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ProfileOption: Identifiable, Hashable {
+public struct ProfileOption: Identifiable, Hashable, Sendable {
     public let id: String
     public let title: String
 

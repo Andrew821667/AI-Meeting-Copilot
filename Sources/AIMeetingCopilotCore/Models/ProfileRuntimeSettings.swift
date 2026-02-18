@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ProfileRuntimeSettings: Codable, Equatable {
+public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var threshold: Double
     public var cooldownSec: Double
     public var maxCardsPer10Min: Int

@@ -6,14 +6,16 @@ OUTPUT_DIR="$ROOT_DIR/dist"
 APP_NAME="AIMeetingCopilot"
 APP_BUNDLE="$OUTPUT_DIR/${APP_NAME}.app"
 WITH_BACKEND=1
+ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
 
 usage() {
   cat <<EOF
-Использование: $0 [--output-dir <dir>] [--without-backend]
+Использование: $0 [--output-dir <dir>] [--without-backend] [--icon-path <path>]
 
 По умолчанию:
   --output-dir $OUTPUT_DIR
   backend packaging включён
+  icon path: $ICON_PATH
 EOF
 }
 
@@ -26,6 +28,10 @@ while [[ $# -gt 0 ]]; do
     --without-backend)
       WITH_BACKEND=0
       shift
+      ;;
+    --icon-path)
+      ICON_PATH="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -44,6 +50,12 @@ MACOS_DIR="$APP_BUNDLE/Contents/MacOS"
 RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
 
 mkdir -p "$OUTPUT_DIR"
+
+if [[ ! -f "$ICON_PATH" ]]; then
+  echo "Иконка не найдена: $ICON_PATH"
+  echo "Сгенерируй её: ./tools/generate_app_icon.sh \"$ICON_PATH\""
+  exit 1
+fi
 
 echo "Сборка release binary..."
 cd "$ROOT_DIR"
@@ -70,6 +82,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <string>AI Meeting Copilot</string>
   <key>CFBundleExecutable</key>
   <string>AIMeetingCopilot</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>com.andrew821667.ai-meeting-copilot</string>
   <key>CFBundleName</key>
@@ -89,6 +103,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+cp "$ICON_PATH" "$RESOURCES_DIR/AppIcon.icns"
 
 if [[ "$WITH_BACKEND" -eq 1 ]]; then
   echo "Упаковка backend в app bundle..."

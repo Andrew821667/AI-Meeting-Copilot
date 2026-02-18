@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ASRProviderOption: Identifiable, Hashable {
+public struct ASRProviderOption: Identifiable, Hashable, Sendable {
     public let id: String
     public let title: String
 

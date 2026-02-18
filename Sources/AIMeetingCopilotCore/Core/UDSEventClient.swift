@@ -6,7 +6,25 @@ public enum UDSClientError: Error {
     case disconnected
 }
 
-public final class UDSEventClient {
+private struct UDSOutboundEnvelope<P: Codable>: Codable {
+    let type: String
+    let payload: P
+}
+
+private final class ResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+
+    func runOnce(_ body: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resumed else { return }
+        resumed = true
+        body()
+    }
+}
+
+public final class UDSEventClient: @unchecked Sendable {
     public var onInsightCard: ((InsightCard) -> Void)?
     public var onSessionSummary: ((SessionSummary) -> Void)?
     public var onSessionAck: ((String) -> Void)?
@@ -27,18 +45,16 @@ public final class UDSEventClient {
         let connection = NWConnection(to: endpoint, using: parameters)
         self.connection = connection
 
-        try await withCheckedThrowingContinuation { continuation in
-            var resumed = false
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let gate = ResumeGate()
             connection.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
-                    if !resumed {
-                        resumed = true
+                    gate.runOnce {
                         continuation.resume()
                     }
                 case .failed(let error):
-                    if !resumed {
-                        resumed = true
+                    gate.runOnce {
                         continuation.resume(throwing: error)
                     }
                     self?.onError?("Ошибка UDS-соединения: \(error.localizedDescription)")
@@ -61,19 +77,15 @@ public final class UDSEventClient {
         receiveBuffer.removeAll(keepingCapacity: true)
     }
 
-    public func send<T: Codable>(type: String, payload: T) async throws {
-        struct Envelope<P: Codable>: Codable {
-            let type: String
-            let payload: P
-        }
-
+    public func send<T: Codable & Sendable>(type: String, payload: T) async throws {
         guard let connection else {
             throw UDSClientError.disconnected
         }
 
-        let data = try JSONEncoder().encode(Envelope(type: type, payload: payload)) + Data("\n".utf8)
+        let envelope = UDSOutboundEnvelope(type: type, payload: payload)
+        let data = try JSONEncoder().encode(envelope) + Data("\n".utf8)
 
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
                 if let error {
                     continuation.resume(throwing: error)

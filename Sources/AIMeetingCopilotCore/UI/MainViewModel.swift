@@ -144,7 +144,7 @@ public final class MainViewModel: ObservableObject {
     }
 }
 
-private struct SessionControlPayload: Codable {
+private struct SessionControlPayload: Codable, Sendable {
     let event: String
     let sessionID: String
     let profile: String
@@ -158,11 +158,11 @@ private struct SessionControlPayload: Codable {
     }
 }
 
-private struct PanicPayload: Codable {
+private struct PanicPayload: Codable, Sendable {
     let ts: Double
 }
 
-private struct CardFeedbackPayload: Codable {
+private struct CardFeedbackPayload: Codable, Sendable {
     let sessionID: String
     let cardID: String
     let useful: Bool
@@ -180,7 +180,7 @@ private struct CardFeedbackPayload: Codable {
     }
 }
 
-private struct ExcludePhrasePayload: Codable {
+private struct ExcludePhrasePayload: Codable, Sendable {
     let sessionID: String
     let phrase: String
 
@@ -238,26 +238,24 @@ public extension MainViewModel {
     }
 
     func refreshCalendarSuggestion(autoApply: Bool = false) {
-        Task {
+        Task { @MainActor in
             let result = await calendarSuggester.fetchNearestSuggestion()
-            await MainActor.run {
-                switch result {
-                case .permissionDenied:
-                    self.calendarSuggestedProfileID = nil
-                    self.calendarStatusText = "Календарь: доступ не предоставлен"
-                case .noUpcomingEvents:
-                    self.calendarSuggestedProfileID = nil
-                    self.calendarStatusText = "Календарь: ближайших встреч не найдено"
-                case .noProfileMatch:
-                    self.calendarSuggestedProfileID = nil
-                    self.calendarStatusText = "Календарь: профиль для встречи не определен"
-                case .suggestion(let suggestion):
-                    self.calendarSuggestedProfileID = suggestion.profileID
-                    let profileTitle = ProfileOption.title(for: suggestion.profileID)
-                    self.calendarStatusText = "Календарь: «\(suggestion.eventTitle)» -> \(profileTitle)"
-                    if autoApply {
-                        self.applyCalendarSuggestedProfile(automatic: true)
-                    }
+            switch result {
+            case .permissionDenied:
+                self.calendarSuggestedProfileID = nil
+                self.calendarStatusText = "Календарь: доступ не предоставлен"
+            case .noUpcomingEvents:
+                self.calendarSuggestedProfileID = nil
+                self.calendarStatusText = "Календарь: ближайших встреч не найдено"
+            case .noProfileMatch:
+                self.calendarSuggestedProfileID = nil
+                self.calendarStatusText = "Календарь: профиль для встречи не определен"
+            case .suggestion(let suggestion):
+                self.calendarSuggestedProfileID = suggestion.profileID
+                let profileTitle = ProfileOption.title(for: suggestion.profileID)
+                self.calendarStatusText = "Календарь: «\(suggestion.eventTitle)» -> \(profileTitle)"
+                if autoApply {
+                    self.applyCalendarSuggestedProfile(automatic: true)
                 }
             }
         }

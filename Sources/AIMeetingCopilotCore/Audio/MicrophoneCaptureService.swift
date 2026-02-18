@@ -68,9 +68,7 @@ public final class MicrophoneCaptureService {
             micRms: rms,
             systemRms: 0
         )
-        DispatchQueue.main.async { [weak self] in
-            self?.onAudioLevel?(levelEvent)
-        }
+        onAudioLevel?(levelEvent)
 
         guard let eventType = vad.process(rms: rms, timestamp: timestamp) else { return }
 
@@ -82,9 +80,7 @@ public final class MicrophoneCaptureService {
             confidence: min(max(rms * 5, 0), 1),
             duration: duration
         )
-        DispatchQueue.main.async { [weak self] in
-            self?.onMicEvent?(event)
-        }
+        onMicEvent?(event)
     }
 
     private static func calculateRMS(buffer: AVAudioPCMBuffer) -> Float {

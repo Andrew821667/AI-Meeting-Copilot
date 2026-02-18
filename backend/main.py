@@ -21,6 +21,11 @@ from session_export import export_session_json
 from session_history_store import SessionHistoryStore
 from telemetry import TelemetryCollector
 
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover
+    load_dotenv = None
+
 logger = logging.getLogger("aimc.backend")
 
 
@@ -47,6 +52,34 @@ def configure_logging() -> None:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+
+def load_environment_files() -> None:
+    if load_dotenv is None:
+        return
+
+    explicit = os.environ.get("AIMC_ENV_FILE", "").strip()
+    candidates = []
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+
+    app_support_env = Path.home() / "Library/Application Support/AIMeetingCopilot/.env"
+    candidates.extend(
+        [
+            app_support_env,
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parent / ".env",
+        ]
+    )
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        normalized = candidate.resolve() if candidate.exists() else candidate
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if candidate.exists():
+            load_dotenv(candidate, override=False)
 
 
 def build_runtime_error(category: str, message: str) -> dict:
@@ -388,6 +421,7 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    load_environment_files()
     configure_logging()
     args = parse_args()
     if args.healthcheck:

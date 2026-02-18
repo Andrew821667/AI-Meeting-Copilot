@@ -1,13 +1,13 @@
 import Foundation
 
-public enum SessionState: String, Codable {
+public enum SessionState: String, Codable, Sendable {
     case idle = "IDLE"
     case capturing = "CAPTURING"
     case paused = "PAUSED"
     case ended = "ENDED"
 }
 
-public enum SessionTransitionError: Error {
+public enum SessionTransitionError: Error, Sendable {
     case invalidTransition(from: SessionState, to: SessionState)
 }
 

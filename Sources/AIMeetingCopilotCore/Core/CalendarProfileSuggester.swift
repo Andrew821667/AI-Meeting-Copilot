@@ -14,6 +14,7 @@ public enum CalendarSuggestionResult: Equatable {
     case noProfileMatch
 }
 
+@MainActor
 public final class CalendarProfileSuggester {
     private let eventStore: EKEventStore
 
