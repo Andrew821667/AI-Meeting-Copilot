@@ -1,0 +1,12 @@
+# Swift
+.build/
+.swiftpm/
+DerivedData/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# OS
+.DS_Store
