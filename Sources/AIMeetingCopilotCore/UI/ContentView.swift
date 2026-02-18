@@ -25,44 +25,52 @@ public struct ContentView: View {
             }
 
             sidebar
-                .frame(width: 320)
+                .frame(width: 340)
         }
         .padding(16)
-        .frame(minWidth: 1100, minHeight: 700)
+        .frame(minWidth: 1160, minHeight: 720)
     }
 
     private var header: some View {
         HStack {
             CaptureIndicatorView(mode: viewModel.captureMode)
             Spacer()
-            Text("State: \(viewModel.sessionState.rawValue)")
+            Text("Состояние: \(localizedState(viewModel.sessionState))")
                 .font(.subheadline.monospaced())
         }
     }
 
     private var controls: some View {
         HStack(spacing: 10) {
-            Button("Start Capture") {
+            Picker("Профиль", selection: $viewModel.selectedProfileID) {
+                ForEach(viewModel.availableProfiles) { profile in
+                    Text(profile.title).tag(profile.id)
+                }
+            }
+            .frame(width: 280)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            Button("Начать захват") {
                 viewModel.startCapture()
             }
             .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
-            Button("Pause") {
+            Button("Пауза") {
                 viewModel.pauseCapture()
             }
             .disabled(viewModel.sessionState != .capturing)
 
-            Button("Resume") {
+            Button("Продолжить") {
                 viewModel.resumeCapture()
             }
             .disabled(viewModel.sessionState != .paused)
 
-            Button("Stop Capture") {
+            Button("Остановить") {
                 viewModel.stopCapture()
             }
-            .disabled(viewModel.sessionState != .capturing)
+            .disabled(viewModel.sessionState != .capturing && viewModel.sessionState != .paused)
 
-            Button("Panic Capture") {
+            Button("Запиши это!") {
                 viewModel.triggerPanicCapture()
             }
             .keyboardShortcut(.space, modifiers: [.command, .shift])
@@ -71,21 +79,21 @@ public struct ContentView: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(format: "mic RMS: %.3f", viewModel.lastMicRms))
-                Text(String(format: "system RMS: %.3f", viewModel.lastSystemRms))
-                Text(viewModel.isUserSpeaking ? "mic: speaking" : "mic: silent")
+                Text(String(format: "RMS микрофона: %.3f", viewModel.lastMicRms))
+                Text(String(format: "RMS системы: %.3f", viewModel.lastSystemRms))
+                Text(viewModel.isUserSpeaking ? "Статус микрофона: говорю" : "Статус микрофона: молчу")
             }
             .font(.caption.monospaced())
         }
     }
 
     private var liveTranscript: some View {
-        GroupBox("Live Transcript") {
+        GroupBox("Живая транскрипция") {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(viewModel.transcript) { segment in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("[\(segment.isFinal ? "FINAL" : "PART")] \(segment.speaker)")
+                            Text("[\(segment.isFinal ? "ФИНАЛ" : "ЧАСТЬ")] \(localizedSpeaker(segment.speaker))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(segment.text)
@@ -107,7 +115,7 @@ public struct ContentView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Cards")
+            Text("Карточки")
                 .font(.title3.weight(.semibold))
 
             if let card = viewModel.activeCard {
@@ -150,17 +158,36 @@ public struct ContentView: View {
 
             if let summary = viewModel.lastSessionSummary {
                 Divider()
-                Text("Session Export")
+                Text("Экспорт сессии")
                     .font(.headline)
-                Text(summary.exportJSONPath)
+                Text("JSON: \(summary.exportJSONPath)")
                     .font(.caption)
                     .textSelection(.enabled)
-                Text(summary.reportMDPath)
+                Text("Отчёт: \(summary.reportMDPath)")
                     .font(.caption)
                     .textSelection(.enabled)
             }
 
             Spacer()
+        }
+    }
+
+    private func localizedState(_ state: SessionState) -> String {
+        switch state {
+        case .idle: return "Ожидание"
+        case .capturing: return "Захват"
+        case .paused: return "Пауза"
+        case .ended: return "Завершено"
+        }
+    }
+
+    private func localizedSpeaker(_ speaker: String) -> String {
+        switch speaker {
+        case "THEM": return "Собеседник"
+        case "THEM_A": return "Собеседник A"
+        case "THEM_B": return "Собеседник B"
+        case "ME": return "Я"
+        default: return speaker
         }
     }
 }

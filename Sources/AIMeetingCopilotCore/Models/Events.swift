@@ -1,10 +1,19 @@
 import Foundation
 
 public enum CaptureMode: String, Codable, CaseIterable {
-    case off = "CAPTURE OFF"
-    case screenCaptureKit = "CAPTURE ON (SCK)"
-    case blackHole = "CAPTURE ON (BlackHole)"
-    case micOnly = "CAPTURE MIC"
+    case off = "CAPTURE_OFF"
+    case screenCaptureKit = "CAPTURE_SCK"
+    case blackHole = "CAPTURE_BLACKHOLE"
+    case micOnly = "CAPTURE_MIC"
+
+    public var localizedLabel: String {
+        switch self {
+        case .off: return "ЗАХВАТ ВЫКЛ"
+        case .screenCaptureKit: return "ЗАХВАТ ВКЛ (SCK)"
+        case .blackHole: return "ЗАХВАТ ВКЛ (BlackHole)"
+        case .micOnly: return "ЗАХВАТ: МИКРОФОН"
+        }
+    }
 }
 
 public enum MicEventType: String, Codable {

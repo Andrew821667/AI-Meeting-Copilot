@@ -9,7 +9,7 @@ public struct OnboardingChecklistView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Onboarding: разрешения и подтверждение")
+            Text("Первичная настройка: разрешения и подтверждение")
                 .font(.title3.weight(.semibold))
 
             checklistRow(
@@ -23,26 +23,26 @@ public struct OnboardingChecklistView: View {
             )
 
             checklistRow(
-                title: "One-time подтверждение права на анализ",
+                title: "Однократное подтверждение права на анализ",
                 granted: viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted
             )
 
             HStack(spacing: 10) {
-                Button("Запросить микрофон") {
+                Button("Запросить доступ к микрофону") {
                     Task { await viewModel.requestMicPermission() }
                 }
-                Button("Запросить запись экрана") {
+                Button("Запросить доступ к записи экрана") {
                     viewModel.requestScreenPermission()
                 }
-                Button("Подтвердить consent") {
+                Button("Подтвердить согласие") {
                     viewModel.acceptAcknowledgement()
                 }
-                Button("Обновить") {
+                Button("Обновить статус") {
                     viewModel.refreshPermissions()
                 }
             }
 
-            Text("Во время встречи используются только локальный индикатор CAPTURE и overlay карточки. Popup/toast уведомления выключены.")
+            Text("Во время встречи используются только локальный индикатор захвата и карточки-подсказки. Всплывающие уведомления отключены.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

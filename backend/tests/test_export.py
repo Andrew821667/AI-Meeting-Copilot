@@ -66,5 +66,5 @@ def test_markdown_report_contains_sections() -> None:
         cards=[],
         metrics={"total_cards": 0},
     )
-    assert "## Decisions" in report
-    assert "## Metrics" in report
+    assert "## Решения" in report
+    assert "## Метрики" in report

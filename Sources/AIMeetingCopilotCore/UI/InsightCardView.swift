@@ -24,10 +24,10 @@ public struct InsightCardView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(card.isFallback ? "Fallback Card" : "Insight Card")
+                Text(card.isFallback ? "Резервная карточка" : "Карточка-подсказка")
                     .font(.headline)
                 Spacer()
-                Text(card.severity.uppercased())
+                Text(localizedSeverity(card.severity))
                     .font(.caption2.monospaced())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
@@ -45,18 +45,18 @@ public struct InsightCardView: View {
                     .foregroundStyle(.secondary)
                 Text(card.insight)
                     .font(.body.weight(.medium))
-                Text("Осторожно: \(card.replyCautious)")
+                Text("Осторожный ответ: \(card.replyCautious)")
                     .font(.subheadline)
-                Text("Уверенно: \(card.replyConfident)")
+                Text("Уверенный ответ: \(card.replyConfident)")
                     .font(.subheadline)
             }
 
             HStack {
-                Button(card.pinned ? "Unpin" : "Pin") { onPin() }
-                Button("Copy") { onCopy() }
+                Button(card.pinned ? "Открепить" : "Закрепить") { onPin() }
+                Button("Копировать") { onCopy() }
                 Button("×") { onClose() }
                 Spacer()
-                Text(card.speaker)
+                Text(localizedSpeaker(card.speaker))
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
             }
@@ -68,5 +68,24 @@ public struct InsightCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.yellow.opacity(0.5), lineWidth: 1)
         )
+    }
+
+    private func localizedSeverity(_ severity: String) -> String {
+        switch severity.lowercased() {
+        case "info": return "ИНФО"
+        case "warning": return "ВНИМАНИЕ"
+        case "alert": return "КРИТИЧНО"
+        default: return severity.uppercased()
+        }
+    }
+
+    private func localizedSpeaker(_ speaker: String) -> String {
+        switch speaker {
+        case "THEM": return "СОБЕСЕДНИК"
+        case "THEM_A": return "СОБЕСЕДНИК A"
+        case "THEM_B": return "СОБЕСЕДНИК B"
+        case "ME": return "Я"
+        default: return speaker
+        }
     }
 }

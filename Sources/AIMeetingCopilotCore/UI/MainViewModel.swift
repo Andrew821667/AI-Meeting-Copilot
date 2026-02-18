@@ -21,6 +21,9 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public var errorMessage: String?
 
+    @Published public var selectedProfileID: String = "negotiation"
+    public let availableProfiles: [ProfileOption] = ProfileOption.all
+
     public let permissionsManager: PermissionsManager
 
     private let stateMachine = SessionStateMachine()
@@ -115,7 +118,7 @@ public extension MainViewModel {
 
     func startCapture() {
         guard onboardingReady else {
-            errorMessage = "Завершите onboarding перед стартом захвата"
+            errorMessage = "Завершите первичную настройку перед запуском захвата"
             return
         }
 
@@ -141,7 +144,7 @@ public extension MainViewModel {
                     payload: SessionControlPayload(
                         event: "start",
                         session_id: sessionID.uuidString,
-                        profile: "negotiation"
+                        profile: selectedProfileID
                     )
                 )
 
@@ -169,7 +172,7 @@ public extension MainViewModel {
                         payload: SessionControlPayload(
                             event: "pause",
                             session_id: currentSessionID.uuidString,
-                            profile: "negotiation"
+                            profile: selectedProfileID
                         )
                     )
                 }
@@ -185,7 +188,7 @@ public extension MainViewModel {
                 sessionState = .paused
                 captureMode = .off
             } catch {
-                errorMessage = "Ошибка паузы: \(error.localizedDescription)"
+                errorMessage = "Ошибка перехода в паузу: \(error.localizedDescription)"
             }
         }
     }
@@ -202,7 +205,7 @@ public extension MainViewModel {
                         payload: SessionControlPayload(
                             event: "resume",
                             session_id: currentSessionID.uuidString,
-                            profile: "negotiation"
+                            profile: selectedProfileID
                         )
                     )
                 }
@@ -217,7 +220,7 @@ public extension MainViewModel {
 
                 sessionState = .capturing
             } catch {
-                errorMessage = "Ошибка возобновления: \(error.localizedDescription)"
+                errorMessage = "Ошибка возобновления сессии: \(error.localizedDescription)"
             }
         }
     }
@@ -238,12 +241,11 @@ public extension MainViewModel {
                     payload: SessionControlPayload(
                         event: "end",
                         session_id: currentSessionID.uuidString,
-                        profile: "negotiation"
+                        profile: selectedProfileID
                     )
                 )
             }
 
-            // allow backend to flush summary back via UDS
             try? await Task.sleep(nanoseconds: 200_000_000)
 
             udsClient.disconnect()
@@ -252,7 +254,7 @@ public extension MainViewModel {
             do {
                 try await stateMachine.endCapture()
             } catch {
-                errorMessage = "Ошибка остановки сессии: \(error.localizedDescription)"
+                errorMessage = "Ошибка завершения сессии: \(error.localizedDescription)"
             }
 
             sessionState = .ended
@@ -292,7 +294,7 @@ public extension MainViewModel {
                 try await udsClient.send(type: "panic_capture", payload: PanicPayload(ts: CACurrentMediaTime()))
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Не удалось отправить panic capture: \(error.localizedDescription)"
+                    self.errorMessage = "Не удалось отправить ручной захват: \(error.localizedDescription)"
                 }
             }
         }
@@ -331,13 +333,13 @@ private extension MainViewModel {
                         try await udsClient.send(type: "transcript_segment", payload: normalized)
                     } catch {
                         await MainActor.run {
-                            self.errorMessage = "Ошибка отправки transcript: \(error.localizedDescription)"
+                            self.errorMessage = "Ошибка отправки транскрипции: \(error.localizedDescription)"
                         }
                     }
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "ASR stream error: \(error.localizedDescription)"
+                    self.errorMessage = "Ошибка потока ASR: \(error.localizedDescription)"
                 }
             }
         }
@@ -360,7 +362,7 @@ private extension MainViewModel {
                     try await udsClient.send(type: "system_state", payload: event)
                 } catch {
                     await MainActor.run {
-                        self.errorMessage = "Ошибка отправки system_state: \(error.localizedDescription)"
+                        self.errorMessage = "Ошибка отправки системного состояния: \(error.localizedDescription)"
                     }
                 }
 
@@ -402,7 +404,7 @@ private extension MainViewModel {
                 try await udsClient.send(type: "mic_event", payload: event)
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Ошибка отправки mic_event: \(error.localizedDescription)"
+                    self.errorMessage = "Ошибка отправки события микрофона: \(error.localizedDescription)"
                 }
             }
         }
@@ -465,8 +467,6 @@ private extension MainViewModel {
     }
 
     func currentBatteryLevel() -> Float {
-        // macOS does not guarantee battery API in all environments.
-        // Return 1.0 as safe default when unavailable.
         return 1.0
     }
 }

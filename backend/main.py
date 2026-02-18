@@ -178,9 +178,9 @@ async def run(socket_path: str, exports_dir: Path) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="AI Meeting Copilot backend")
-    parser.add_argument("--socket", required=True, help="Unix domain socket path")
-    parser.add_argument("--exports-dir", default="exports", help="Directory for session exports")
+    parser = argparse.ArgumentParser(description="Backend-сервис AI Meeting Copilot")
+    parser.add_argument("--socket", required=True, help="Путь к Unix Domain Socket")
+    parser.add_argument("--exports-dir", default="exports", help="Каталог для экспорта сессий")
     return parser.parse_args()
 
 

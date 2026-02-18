@@ -14,11 +14,11 @@ from telemetry import TelemetryCollector
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Синтетический стресс-тест оркестратора")
     parser.add_argument("--duration-min", type=int, default=90)
     parser.add_argument("--profile", default="negotiation")
     parser.add_argument("--inject-timeouts", type=float, default=0.0)
-    parser.add_argument("--report", default="stress_report.json")
+    parser.add_argument("--report", default="stress_report.json", help="Путь к JSON-отчёту")
     return parser.parse_args()
 
 

@@ -40,9 +40,9 @@ public final class UDSEventClient {
                         resumed = true
                         continuation.resume(throwing: error)
                     }
-                    self?.onError?("UDS failed: \(error.localizedDescription)")
+                    self?.onError?("Ошибка UDS-соединения: \(error.localizedDescription)")
                 case .cancelled:
-                    self?.onError?("UDS cancelled")
+                    self?.onError?("UDS-соединение закрыто")
                 default:
                     break
                 }
@@ -90,7 +90,7 @@ public final class UDSEventClient {
             guard let self else { return }
 
             if let error {
-                self.onError?("UDS receive error: \(error.localizedDescription)")
+                self.onError?("Ошибка чтения UDS: \(error.localizedDescription)")
                 return
             }
 
@@ -100,7 +100,7 @@ public final class UDSEventClient {
             }
 
             if isComplete {
-                self.onError?("UDS connection completed")
+                self.onError?("UDS-соединение завершено")
                 return
             }
 
@@ -124,7 +124,7 @@ public final class UDSEventClient {
         }
 
         guard let header = try? JSONDecoder().decode(Header.self, from: line) else {
-            onError?("UDS decode error")
+            onError?("Ошибка декодирования сообщения UDS")
             return
         }
 
@@ -135,7 +135,7 @@ public final class UDSEventClient {
                 let payload: InsightCard
             }
             guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
-                onError?("UDS decode insight_card failed")
+                onError?("Ошибка декодирования карточки")
                 return
             }
             DispatchQueue.main.async { [weak self] in
@@ -148,7 +148,7 @@ public final class UDSEventClient {
                 let payload: SessionSummary
             }
             guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
-                onError?("UDS decode session_summary failed")
+                onError?("Ошибка декодирования сводки сессии")
                 return
             }
             DispatchQueue.main.async { [weak self] in
@@ -162,7 +162,7 @@ public final class UDSEventClient {
                 let payload: AckPayload
             }
             guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
-                onError?("UDS decode session_ack failed")
+                onError?("Ошибка декодирования подтверждения сессии")
                 return
             }
             DispatchQueue.main.async { [weak self] in

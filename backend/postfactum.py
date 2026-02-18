@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from models import InsightCard, TranscriptSegment
 
 
@@ -26,9 +24,11 @@ def build_meeting_memory(transcript: list[TranscriptSegment], cards: list[Insigh
         if card.severity in {"warning", "alert"}:
             risks.append(card.insight)
 
+    them_count = len([x for x in transcript if x.speaker.startswith("THEM")])
+
     return {
         "summary_bullets": [
-            f"Реплик THEM: {len([x for x in transcript if x.speaker.startswith('THEM')])}",
+            f"Реплик собеседника: {them_count}",
             f"Карточек показано: {len(cards)}",
         ],
         "decisions": _dedupe(decisions)[:10],
@@ -46,21 +46,21 @@ def build_markdown_report(
     metrics: dict,
 ) -> str:
     lines: list[str] = []
-    lines.append(f"# Postfactum Report — {session_id}")
+    lines.append(f"# Постфактум-отчёт — {session_id}")
     lines.append("")
-    lines.append(f"Profile: `{profile}`")
+    lines.append(f"Профиль: `{profile}`")
     lines.append("")
 
-    lines.append("## Summary")
+    lines.append("## Краткая сводка")
     for item in meeting_memory.get("summary_bullets", []):
         lines.append(f"- {item}")
     lines.append("")
 
     for title, key in [
-        ("Decisions", "decisions"),
-        ("Risks", "risks"),
-        ("Open Questions", "open_questions"),
-        ("Action Items", "action_items"),
+        ("Решения", "decisions"),
+        ("Риски", "risks"),
+        ("Открытые вопросы", "open_questions"),
+        ("Действия", "action_items"),
     ]:
         lines.append(f"## {title}")
         values = meeting_memory.get(key, [])
@@ -68,21 +68,32 @@ def build_markdown_report(
             for value in values:
                 lines.append(f"- {value}")
         else:
-            lines.append("- (none)")
+            lines.append("- (нет)")
         lines.append("")
 
-    lines.append("## Cards")
+    lines.append("## Карточки")
     for card in cards[-20:]:
-        suffix = " [fallback]" if card.is_fallback else ""
-        lines.append(f"- [{card.severity}] {card.insight}{suffix}")
+        suffix = " [резервная]" if card.is_fallback else ""
+        lines.append(f"- [{_severity_ru(card.severity)}] {card.insight}{suffix}")
     lines.append("")
 
-    lines.append("## Metrics")
+    lines.append("## Метрики")
     for k, v in metrics.items():
         lines.append(f"- {k}: {v}")
     lines.append("")
 
     return "\n".join(lines)
+
+
+def _severity_ru(value: str) -> str:
+    value = value.lower()
+    if value == "info":
+        return "инфо"
+    if value == "warning":
+        return "внимание"
+    if value == "alert":
+        return "критично"
+    return value
 
 
 def _dedupe(values: list[str]) -> list[str]:

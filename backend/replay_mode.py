@@ -11,7 +11,7 @@ from trigger_scorer import TriggerScorer
 
 
 class ReplayMode:
-    """Offline trigger replay for one exported session JSON."""
+    """Оффлайн-переигрывание решений триггеров по экспортированной сессии."""
 
     def replay(self, session_json: Path, profile_id: str) -> list[dict]:
         payload = json.loads(session_json.read_text(encoding="utf-8"))
@@ -39,18 +39,18 @@ class ReplayMode:
             )
 
             score = scorer.compute(segment)
-            reason = "ok"
+            reason = "сработал"
             triggered = True
 
             if score < profile.threshold:
                 triggered = False
-                reason = "threshold_miss"
+                reason = "ниже порога"
             elif raw_buffer.duration_minutes() < profile.min_context_min:
                 triggered = False
-                reason = "insufficient_context"
+                reason = "недостаточный контекст"
             elif segment.utteranceId in seen_utterances:
                 triggered = False
-                reason = "duplicate"
+                reason = "дубликат реплики"
             elif (segment.tsEnd - last_trigger_ts) < profile.cooldown_sec:
                 triggered = False
                 reason = "cooldown"
@@ -76,10 +76,10 @@ class ReplayMode:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Replay trigger decisions for one exported session")
-    parser.add_argument("--session", required=True, help="Path to exported session JSON")
-    parser.add_argument("--profile", default="negotiation", help="Profile id")
-    parser.add_argument("--out", default="replay_report.json", help="Output JSON report path")
+    parser = argparse.ArgumentParser(description="Переигрывание триггеров по экспортированной сессии")
+    parser.add_argument("--session", required=True, help="Путь к JSON-файлу экспортированной сессии")
+    parser.add_argument("--profile", default="negotiation", help="Идентификатор профиля")
+    parser.add_argument("--out", default="replay_report.json", help="Путь для выходного отчёта")
     return parser.parse_args()
 
 

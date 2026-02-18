@@ -8,7 +8,7 @@ public struct CaptureIndicatorView: View {
     }
 
     public var body: some View {
-        Text(mode.rawValue)
+        Text(mode.localizedLabel)
             .font(.system(size: 12, weight: .semibold, design: .monospaced))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)

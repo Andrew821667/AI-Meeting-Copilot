@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 4 completed: adaptive memory, replay mode, diarization quality gates, and multi-profile backend are integrated.
+Stage 5 completed: Russian-first user experience and profile selection are integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -16,3 +16,4 @@ Stage 4 completed: adaptive memory, replay mode, diarization quality gates, and 
 - docs/process/stage-2-report.md
 - docs/process/stage-3-report.md
 - docs/process/stage-4-report.md
+- docs/process/stage-5-report.md
