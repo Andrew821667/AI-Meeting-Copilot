@@ -31,6 +31,11 @@ class TelemetryCollector:
         self.llm_discarded_responses = 0
         self.llm_canceled_after_send_rate = 0.0
         self.llm_latency_ms: list[float] = []
+        self.dynamic_timeout_warning_count = 0
+        self._recent_llm_latency_ms: deque[float] = deque(maxlen=3)
+        self._llm_call_seq = 0
+        self._last_warning_check_seq = 0
+        self._warning_active = False
 
         self.card_show_latency_ms: list[float] = []
         self.pending_queue_max_len = 0
@@ -51,8 +56,30 @@ class TelemetryCollector:
 
     def on_llm_call(self, latency_ms: float, timed_out: bool) -> None:
         self.llm_latency_ms.append(latency_ms)
+        self._recent_llm_latency_ms.append(latency_ms)
+        self._llm_call_seq += 1
         if timed_out:
             self.api_timeouts += 1
+
+    def consume_runtime_warnings(self) -> list[str]:
+        if self._llm_call_seq == self._last_warning_check_seq:
+            return []
+        self._last_warning_check_seq = self._llm_call_seq
+
+        if len(self._recent_llm_latency_ms) < 3:
+            return []
+
+        p95_recent = _percentile(list(self._recent_llm_latency_ms), 0.95)
+        if p95_recent <= 2000:
+            self._warning_active = False
+            return []
+
+        if self._warning_active:
+            return []
+
+        self._warning_active = True
+        self.dynamic_timeout_warning_count += 1
+        return [f"LLM отвечает медленно: p95 последних 3 запросов = {p95_recent:.0f} мс"]
 
     def on_pending_queue_len(self, value: int) -> None:
         self.pending_queue_max_len = max(self.pending_queue_max_len, value)
@@ -105,6 +132,7 @@ class TelemetryCollector:
             "useless_feedback_count": self.useless_feedback_count,
             "excluded_feedback_count": self.excluded_feedback_count,
             "api_timeouts": self.api_timeouts,
+            "dynamic_timeout_warning_count": self.dynamic_timeout_warning_count,
             "llm_discarded_responses": self.llm_discarded_responses,
             "llm_canceled_after_send_rate": self.llm_canceled_after_send_rate,
             "avg_asr_partial_latency_ms": sum(self.asr_partial_latency_ms) / len(self.asr_partial_latency_ms)

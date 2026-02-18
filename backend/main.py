@@ -206,6 +206,19 @@ class BackendServer:
                 elif msg_type == "exclude_phrase":
                     self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
 
+                warnings = self.runtime.telemetry.consume_runtime_warnings()
+                for message in warnings:
+                    outbound.append(
+                        {
+                            "type": "runtime_warning",
+                            "payload": {
+                                "severity": "warning",
+                                "category": "llm_latency",
+                                "message": message,
+                            },
+                        }
+                    )
+
                 for packet in outbound:
                     writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
 

@@ -21,6 +21,7 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public private(set) var sessionHistory: [SessionHistoryItem] = []
     @Published public private(set) var excludedPhrases: [String] = []
+    @Published public private(set) var runtimeWarningMessage: String?
     @Published public var errorMessage: String?
     @Published public private(set) var calendarStatusText: String = "Календарь: не проверен"
     @Published public private(set) var calendarSuggestedProfileID: String?
@@ -87,6 +88,10 @@ public final class MainViewModel: ObservableObject {
         }
 
         udsClient.onSessionAck = { _ in }
+
+        udsClient.onRuntimeWarning = { [weak self] message in
+            self?.showRuntimeWarning(message)
+        }
 
         udsClient.onError = { [weak self] message in
             DispatchQueue.main.async {
@@ -474,6 +479,18 @@ public extension MainViewModel {
 }
 
 private extension MainViewModel {
+    func showRuntimeWarning(_ message: String) {
+        runtimeWarningMessage = message
+        Task {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            await MainActor.run {
+                if self.runtimeWarningMessage == message {
+                    self.runtimeWarningMessage = nil
+                }
+            }
+        }
+    }
+
     func applyCalendarSuggestedProfile(automatic: Bool) {
         guard let suggested = calendarSuggestedProfileID else { return }
         guard sessionState != .capturing && sessionState != .paused else { return }

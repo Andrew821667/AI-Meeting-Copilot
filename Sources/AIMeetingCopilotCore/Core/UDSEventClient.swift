@@ -10,6 +10,7 @@ public final class UDSEventClient {
     public var onInsightCard: ((InsightCard) -> Void)?
     public var onSessionSummary: ((SessionSummary) -> Void)?
     public var onSessionAck: ((String) -> Void)?
+    public var onRuntimeWarning: ((String) -> Void)?
     public var onError: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "ai.meeting.copilot.uds")
@@ -167,6 +168,20 @@ public final class UDSEventClient {
             }
             DispatchQueue.main.async { [weak self] in
                 self?.onSessionAck?(envelope.payload.event)
+            }
+
+        case "runtime_warning":
+            struct WarningPayload: Decodable { let message: String }
+            struct Envelope: Decodable {
+                let type: String
+                let payload: WarningPayload
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("Ошибка декодирования runtime warning")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onRuntimeWarning?(envelope.payload.message)
             }
 
         default:

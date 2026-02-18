@@ -27,3 +27,24 @@ def test_card_latency_percentiles() -> None:
     metrics = t.build_metrics()
     assert metrics["card_show_latency_p50_ms"] == 2500
     assert metrics["card_show_latency_p95_ms"] > 3500
+
+
+def test_dynamic_timeout_warning_on_high_recent_p95() -> None:
+    t = TelemetryCollector()
+    t.on_llm_call(latency_ms=2100, timed_out=False)
+    t.on_llm_call(latency_ms=2300, timed_out=False)
+    t.on_llm_call(latency_ms=2200, timed_out=False)
+
+    warnings = t.consume_runtime_warnings()
+    assert len(warnings) == 1
+    assert "LLM отвечает медленно" in warnings[0]
+    assert t.build_metrics()["dynamic_timeout_warning_count"] == 1
+
+    # No new LLM call: no duplicate warning.
+    assert t.consume_runtime_warnings() == []
+
+    # Recovery after fast calls resets active warning state.
+    t.on_llm_call(latency_ms=400, timed_out=False)
+    t.on_llm_call(latency_ms=500, timed_out=False)
+    t.on_llm_call(latency_ms=450, timed_out=False)
+    assert t.consume_runtime_warnings() == []

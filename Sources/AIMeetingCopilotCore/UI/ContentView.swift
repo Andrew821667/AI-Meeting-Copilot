@@ -26,6 +26,11 @@ public struct ContentView: View {
                         .foregroundStyle(.red)
                         .font(.footnote)
                 }
+                if let runtimeWarningMessage = viewModel.runtimeWarningMessage {
+                    Text("Предупреждение: \(runtimeWarningMessage)")
+                        .foregroundStyle(.orange)
+                        .font(.footnote.weight(.semibold))
+                }
             }
 
             sidebar
