@@ -3,7 +3,7 @@
 Project bootstrap for a macOS realtime meeting copilot.
 
 ## Current status
-Stage 6 completed: profile runtime editor and session history viewer are integrated.
+Stage 7 completed: learning mode feedback and profile-level exclude list are integrated.
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
@@ -18,3 +18,4 @@ Stage 6 completed: profile runtime editor and session history viewer are integra
 - docs/process/stage-4-report.md
 - docs/process/stage-5-report.md
 - docs/process/stage-6-report.md
+- docs/process/stage-7-report.md

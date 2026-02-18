@@ -146,6 +146,9 @@ public struct ContentView: View {
                     collapsed: viewModel.isCardCollapsed,
                     onPin: { viewModel.togglePinActiveCard() },
                     onCopy: { viewModel.copyActiveReply() },
+                    onUseful: { viewModel.markActiveCardUseful() },
+                    onUseless: { viewModel.markActiveCardUseless() },
+                    onExclude: { viewModel.excludeActiveCardPattern() },
                     onClose: { viewModel.dismissActiveCard() }
                 )
             } else {

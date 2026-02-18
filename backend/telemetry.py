@@ -23,6 +23,9 @@ class TelemetryCollector:
         self.total_cards = 0
         self.fallback_cards = 0
         self.dismissed_cards = 0
+        self.useful_feedback_count = 0
+        self.useless_feedback_count = 0
+        self.excluded_feedback_count = 0
 
         self.api_timeouts = 0
         self.llm_discarded_responses = 0
@@ -63,6 +66,15 @@ class TelemetryCollector:
             latency = max(0.0, shown_ts - card.source_ts_end) * 1000
             self.card_show_latency_ms.append(latency)
 
+    def on_card_feedback(self, *, useful: bool, excluded: bool) -> None:
+        if useful:
+            self.useful_feedback_count += 1
+        else:
+            self.useless_feedback_count += 1
+
+        if excluded:
+            self.excluded_feedback_count += 1
+
     def on_audio_level(self, event: AudioLevelEvent) -> None:
         if event.systemRms < 0.05:
             self._low_system_rms_streak += 1
@@ -89,6 +101,9 @@ class TelemetryCollector:
             "total_cards": self.total_cards,
             "fallback_cards": self.fallback_cards,
             "dismissed_cards": self.dismissed_cards,
+            "useful_feedback_count": self.useful_feedback_count,
+            "useless_feedback_count": self.useless_feedback_count,
+            "excluded_feedback_count": self.excluded_feedback_count,
             "api_timeouts": self.api_timeouts,
             "llm_discarded_responses": self.llm_discarded_responses,
             "llm_canceled_after_send_rate": self.llm_canceled_after_send_rate,

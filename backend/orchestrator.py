@@ -11,7 +11,7 @@ from models import AudioLevelEvent, InsightCard, MicEvent, RawBufferEntry, Syste
 from profile_loader import Profile
 from raw_buffer import RawBuffer
 from telemetry import TelemetryCollector
-from trigger_scorer import TriggerScorer
+from trigger_scorer import TriggerScorer, normalize
 
 
 class TriggerOrchestrator:
@@ -34,9 +34,20 @@ class TriggerOrchestrator:
         self.last_card_severity: str | None = None
         self.memory_updater = MeetingMemoryUpdater()
         self.diarization_gate = DiarizationGate()
+        self.excluded_phrases: set[str] = set()
 
     def set_paused(self, value: bool) -> None:
         self.paused = value
+
+    def set_excluded_phrases(self, phrases: set[str]) -> None:
+        self.excluded_phrases = set(phrases)
+
+    def add_excluded_phrase(self, phrase: str) -> str | None:
+        normalized = normalize(phrase)
+        if len(normalized) < 3:
+            return None
+        self.excluded_phrases.add(normalized)
+        return normalized
 
     def meeting_memory_snapshot(self, ended_ts: float, cards: list[InsightCard]) -> dict:
         return self.memory_updater.update_on_meeting_end(self.transcript_history, cards, ended_ts)
@@ -176,6 +187,9 @@ class TriggerOrchestrator:
         return [card]
 
     def _should_trigger(self, score: float, segment: TranscriptSegment) -> bool:
+        if self._is_excluded(segment):
+            return False
+
         if score < self.profile.threshold:
             return False
 
@@ -194,6 +208,15 @@ class TriggerOrchestrator:
             return False
 
         return True
+
+    def _is_excluded(self, segment: TranscriptSegment) -> bool:
+        if not self.excluded_phrases:
+            return False
+        text = normalize(segment.text)
+        for phrase in self.excluded_phrases:
+            if phrase and phrase in text:
+                return True
+        return False
 
     def _trim_card_window(self, now: float) -> None:
         window_start = now - 600

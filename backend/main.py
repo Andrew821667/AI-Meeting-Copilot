@@ -5,8 +5,10 @@ import asyncio
 import json
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+from feedback_store import FeedbackStore
 from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from postfactum import build_markdown_report
@@ -15,9 +17,26 @@ from session_export import export_session_json
 from telemetry import TelemetryCollector
 
 
+@dataclass
+class CardFeedback:
+    session_id: str
+    card_id: str
+    useful: bool
+    excluded: bool
+    trigger_reason: str
+    insight: str
+
+
+@dataclass
+class ExcludePhrase:
+    session_id: str
+    phrase: str
+
+
 class SessionRuntime:
     def __init__(self, exports_dir: Path) -> None:
         self.exports_dir = exports_dir
+        self.feedback_store = FeedbackStore(exports_dir / "feedback.sqlite3")
         self.profile = load_profile("negotiation")
         self.profile_settings = profile_runtime_settings(self.profile)
         self.telemetry = TelemetryCollector()
@@ -42,9 +61,43 @@ class SessionRuntime:
         self.telemetry = TelemetryCollector()
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
         self.orchestrator.set_paused(False)
+        self.orchestrator.set_excluded_phrases(self.feedback_store.load_excluded_phrases(profile_id=self.profile.id))
 
         self.transcript = []
         self.cards = []
+
+    def record_card_feedback(self, payload: CardFeedback) -> None:
+        if payload.session_id != self.session_id:
+            return
+
+        self.feedback_store.save_feedback(
+            session_id=payload.session_id,
+            card_id=payload.card_id,
+            useful=payload.useful,
+            excluded=payload.excluded,
+            trigger_reason=payload.trigger_reason,
+            insight=payload.insight,
+        )
+        self.telemetry.on_card_feedback(useful=payload.useful, excluded=payload.excluded)
+
+        for card in self.cards:
+            if card.id == payload.card_id:
+                if payload.excluded:
+                    card.excluded = True
+                break
+
+    def add_excluded_phrase(self, payload: ExcludePhrase) -> None:
+        if payload.session_id != self.session_id:
+            return
+
+        normalized = self.orchestrator.add_excluded_phrase(payload.phrase)
+        if not normalized:
+            return
+        self.feedback_store.save_excluded_phrase(
+            profile_id=self.profile.id,
+            phrase=payload.phrase,
+            normalized_phrase=normalized,
+        )
 
     def pause(self) -> None:
         self.orchestrator.set_paused(True)
@@ -129,6 +182,10 @@ class BackendServer:
                     await self.runtime.orchestrator.on_audio_level(AudioLevelEvent(**payload))
                 elif msg_type == "system_state":
                     await self.runtime.orchestrator.on_system_state(SystemStateEvent(**payload))
+                elif msg_type == "card_feedback":
+                    self.runtime.record_card_feedback(CardFeedback(**payload))
+                elif msg_type == "exclude_phrase":
+                    self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
 
                 for packet in outbound:
                     writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))

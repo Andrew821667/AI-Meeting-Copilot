@@ -5,6 +5,9 @@ public struct InsightCardView: View {
     public let collapsed: Bool
     public let onPin: () -> Void
     public let onCopy: () -> Void
+    public let onUseful: () -> Void
+    public let onUseless: () -> Void
+    public let onExclude: () -> Void
     public let onClose: () -> Void
 
     public init(
@@ -12,12 +15,18 @@ public struct InsightCardView: View {
         collapsed: Bool,
         onPin: @escaping () -> Void,
         onCopy: @escaping () -> Void,
+        onUseful: @escaping () -> Void,
+        onUseless: @escaping () -> Void,
+        onExclude: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self.card = card
         self.collapsed = collapsed
         self.onPin = onPin
         self.onCopy = onCopy
+        self.onUseful = onUseful
+        self.onUseless = onUseless
+        self.onExclude = onExclude
         self.onClose = onClose
     }
 
@@ -59,6 +68,15 @@ public struct InsightCardView: View {
                 Text(localizedSpeaker(card.speaker))
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
+            }
+
+            if !collapsed {
+                HStack {
+                    Button("Полезно") { onUseful() }
+                    Button("Бесполезно") { onUseless() }
+                    Button("Не показывать похожее") { onExclude() }
+                    Spacer()
+                }
             }
         }
         .padding(12)

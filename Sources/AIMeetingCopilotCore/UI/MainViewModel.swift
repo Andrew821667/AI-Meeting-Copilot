@@ -124,6 +124,34 @@ private struct PanicPayload: Codable {
     let ts: Double
 }
 
+private struct CardFeedbackPayload: Codable {
+    let sessionID: String
+    let cardID: String
+    let useful: Bool
+    let excluded: Bool
+    let triggerReason: String
+    let insight: String
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id"
+        case cardID = "card_id"
+        case useful
+        case excluded
+        case triggerReason = "trigger_reason"
+        case insight
+    }
+}
+
+private struct ExcludePhrasePayload: Codable {
+    let sessionID: String
+    let phrase: String
+
+    enum CodingKeys: String, CodingKey {
+        case sessionID = "session_id"
+        case phrase
+    }
+}
+
 public extension MainViewModel {
     func refreshPermissions() {
         permissionsManager.refresh()
@@ -336,9 +364,89 @@ public extension MainViewModel {
             }
         }
     }
+
+    func markActiveCardUseful() {
+        sendActiveCardFeedback(useful: true, excluded: false)
+    }
+
+    func markActiveCardUseless() {
+        sendActiveCardFeedback(useful: false, excluded: false)
+    }
+
+    func excludeActiveCardPattern() {
+        guard var card = activeCard, let sessionID = currentSessionID else { return }
+
+        card.excluded = true
+        activeCard = card
+        replaceRecent(card)
+
+        let phrase = extractExcludePhrase(from: card)
+        Task {
+            do {
+                try await udsClient.send(
+                    type: "exclude_phrase",
+                    payload: ExcludePhrasePayload(sessionID: sessionID.uuidString, phrase: phrase)
+                )
+                try await udsClient.send(
+                    type: "card_feedback",
+                    payload: CardFeedbackPayload(
+                        sessionID: sessionID.uuidString,
+                        cardID: card.id,
+                        useful: false,
+                        excluded: true,
+                        triggerReason: card.triggerReason,
+                        insight: card.insight
+                    )
+                )
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Не удалось сохранить исключение: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
 }
 
 private extension MainViewModel {
+    func sendActiveCardFeedback(useful: Bool, excluded: Bool) {
+        guard let card = activeCard, let sessionID = currentSessionID else { return }
+
+        Task {
+            do {
+                try await udsClient.send(
+                    type: "card_feedback",
+                    payload: CardFeedbackPayload(
+                        sessionID: sessionID.uuidString,
+                        cardID: card.id,
+                        useful: useful,
+                        excluded: excluded,
+                        triggerReason: card.triggerReason,
+                        insight: card.insight
+                    )
+                )
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Не удалось отправить обратную связь: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func extractExcludePhrase(from card: InsightCard) -> String {
+        if let range = card.triggerReason.range(of: ":") {
+            let candidate = card.triggerReason[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty {
+                return String(candidate)
+            }
+        }
+
+        if let firstSentence = card.insight.split(separator: ".").first, !firstSentence.isEmpty {
+            return String(firstSentence).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return card.insight
+    }
+
     func startASRStreamingTask() {
         transcriptTask?.cancel()
         transcriptTask = Task {
