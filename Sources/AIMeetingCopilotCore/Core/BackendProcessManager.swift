@@ -103,17 +103,18 @@ public actor BackendProcessManager {
             if FileManager.default.fileExists(atPath: packagedBinary) {
                 return BackendLaunch(executablePath: packagedBinary, arguments: [])
             }
-            let packagedScript = (resourceRoot as NSString).appendingPathComponent("backend/main.py")
-            if FileManager.default.fileExists(atPath: packagedScript) {
-                let python = try resolvePythonExecutable()
-                return BackendLaunch(executablePath: python, arguments: [packagedScript])
-            }
         }
 
-        // 3) Dev fallback (python script from workspace).
+        // 3) Find backend script (main.py) and prefer run.sh launcher (activates venv).
         let backendPath = resolveBackendScriptPath()
         guard FileManager.default.fileExists(atPath: backendPath) else {
             throw BackendProcessError.backendScriptNotFound(backendPath)
+        }
+
+        let backendDir = (backendPath as NSString).deletingLastPathComponent
+        let runScript = (backendDir as NSString).appendingPathComponent("run.sh")
+        if FileManager.default.isExecutableFile(atPath: runScript) {
+            return BackendLaunch(executablePath: "/bin/bash", arguments: [runScript])
         }
 
         let python = try resolvePythonExecutable()
@@ -128,12 +129,18 @@ public actor BackendProcessManager {
         // Поиск относительно исполняемого файла (dev-режим из Xcode/swift run)
         if let executableURL = Bundle.main.executableURL {
             let projectCandidates = [
-                // swift run: .build/debug/AIMeetingCopilot → ../../backend/main.py
+                // swift run: .build/arm64-apple-macosx/debug/AIMeetingCopilot → 4 levels up
+                executableURL.deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("backend/main.py").path,
+                // swift run (short): .build/debug/AIMeetingCopilot → 3 levels up
                 executableURL.deletingLastPathComponent()
                     .deletingLastPathComponent()
                     .deletingLastPathComponent()
                     .appendingPathComponent("backend/main.py").path,
-                // Xcode: DerivedData/.../Build/Products/Debug/AIMeetingCopilot → исходники
+                // Xcode: DerivedData/.../Build/Products/Debug/AIMeetingCopilot → рядом
                 executableURL.deletingLastPathComponent()
                     .appendingPathComponent("backend/main.py").path,
             ]
@@ -167,11 +174,32 @@ public actor BackendProcessManager {
             return explicit
         }
 
-        let candidates = [
+        // Prefer venv python next to backend script (has all dependencies installed).
+        var candidates: [String] = []
+        if let executableURL = Bundle.main.executableURL {
+            let projectRoots = [
+                executableURL.deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent(),
+                executableURL.deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent(),
+            ]
+            for root in projectRoots {
+                let venvPython = root.appendingPathComponent("backend/.venv/bin/python3").path
+                if FileManager.default.isExecutableFile(atPath: venvPython) {
+                    candidates.append(venvPython)
+                    break
+                }
+            }
+        }
+
+        candidates.append(contentsOf: [
             "/opt/homebrew/bin/python3",
             "/usr/local/bin/python3",
             "/usr/bin/python3"
-        ]
+        ])
 
         if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             return found
