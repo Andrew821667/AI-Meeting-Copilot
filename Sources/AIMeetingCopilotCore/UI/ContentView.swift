@@ -1,43 +1,44 @@
 import SwiftUI
 
 public struct ContentView: View {
-    @StateObject private var viewModel = MainViewModel()
+    @ObservedObject private var viewModel: MainViewModel
     @State private var showProfileEditor = false
     @State private var showExcludeEditor = false
     @State private var excludeDraft = ""
 
-    public init() {}
+    public init(viewModel: MainViewModel = MainViewModel()) {
+        self.viewModel = viewModel
+    }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            VStack(alignment: .leading, spacing: 16) {
-                header
-
-                if !viewModel.onboardingReady {
-                    OnboardingChecklistView(viewModel: viewModel)
+        HSplitView {
+            VSplitView {
+                ScrollView {
+                    mainTopContent
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .frame(minHeight: 300, idealHeight: 430)
 
-                controls
-                calendarHint
                 liveTranscript
-
-                if let errorMessage = viewModel.errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-                if let runtimeWarningMessage = viewModel.runtimeWarningMessage {
-                    Text("Предупреждение: \(runtimeWarningMessage)")
-                        .foregroundStyle(.orange)
-                        .font(.footnote.weight(.semibold))
-                }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .frame(minHeight: 220)
             }
+            .frame(minWidth: 560)
 
-            sidebar
-                .frame(width: 380)
+            VSplitView {
+                sidebarCards
+                    .padding(16)
+                    .frame(minHeight: 260)
+
+                sidebarHistory
+                    .padding(16)
+                    .frame(minHeight: 220)
+            }
+            .frame(minWidth: 260)
         }
-        .padding(16)
-        .frame(minWidth: 1240, minHeight: 760)
+        .frame(minWidth: 900, minHeight: 680)
         .sheet(isPresented: $showProfileEditor) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Параметры профиля")
@@ -103,6 +104,33 @@ public struct ContentView: View {
         }
     }
 
+    private var mainTopContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+
+            if viewModel.hasPendingPermissionItems {
+                OnboardingChecklistView(viewModel: viewModel)
+            }
+
+            controls
+            Text(viewModel.startGuideText)
+                .font(.footnote)
+                .foregroundStyle(viewModel.onboardingReady ? (viewModel.screenPermissionMissingForMeetingMode ? .orange : .green) : .orange)
+            calendarHint
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.footnote)
+            }
+            if let runtimeWarningMessage = viewModel.runtimeWarningMessage {
+                Text("Предупреждение: \(runtimeWarningMessage)")
+                    .foregroundStyle(.orange)
+                    .font(.footnote.weight(.semibold))
+            }
+        }
+    }
+
     private var header: some View {
         HStack {
             CaptureIndicatorView(mode: viewModel.captureMode)
@@ -113,13 +141,41 @@ public struct ContentView: View {
     }
 
     private var controls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    pickersRow
+                    Spacer(minLength: 0)
+                    profileToolsRow
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    pickersRow
+                    profileToolsRow
+                }
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    sessionActionsRow
+                    Spacer(minLength: 0)
+                    levelsView
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    sessionActionsRow
+                    levelsView
+                }
+            }
+        }
+    }
+
+    private var pickersRow: some View {
         HStack(spacing: 10) {
             Picker("Профиль", selection: $viewModel.selectedProfileID) {
                 ForEach(viewModel.availableProfiles) { profile in
                     Text(profile.title).tag(profile.id)
                 }
             }
-            .frame(width: 300)
+            .frame(minWidth: 220, idealWidth: 280, maxWidth: 320)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Picker("ASR", selection: $viewModel.selectedASRProviderID) {
@@ -127,9 +183,21 @@ public struct ContentView: View {
                     Text(provider.title).tag(provider.id)
                 }
             }
-            .frame(width: 270)
+            .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
+            Picker("Режим", selection: $viewModel.selectedCaptureSourceMode) {
+                ForEach(viewModel.availableCaptureSourceModes) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+        }
+    }
+
+    private var profileToolsRow: some View {
+        HStack(spacing: 8) {
             Button("Настроить профиль") {
                 showProfileEditor = true
             }
@@ -140,11 +208,15 @@ public struct ContentView: View {
                 showExcludeEditor = true
             }
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+        }
+    }
 
-            Button("Начать захват") {
-                viewModel.startCapture()
-            }
-            .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+    private var sessionActionsRow: some View {
+        HStack(spacing: 8) {
+                Button(viewModel.startButtonTitle) {
+                    viewModel.startCapture()
+                }
+                .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Button("Пауза") {
                 viewModel.pauseCapture()
@@ -167,15 +239,23 @@ public struct ContentView: View {
             .keyboardShortcut(.space, modifiers: [.command, .shift])
             .disabled(viewModel.sessionState != .capturing)
 
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(String(format: "RMS микрофона: %.3f", viewModel.lastMicRms))
-                Text(String(format: "RMS системы: %.3f", viewModel.lastSystemRms))
-                Text(viewModel.isUserSpeaking ? "Статус микрофона: говорю" : "Статус микрофона: молчу")
+            Button(viewModel.answerModeButtonTitle) {
+                viewModel.toggleForceAnswerMode()
             }
-            .font(.caption.monospaced())
+            .tint(viewModel.profileSettings.forceAnswerMode ? .green : .secondary)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
         }
+    }
+
+    private var levelsView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(format: "RMS микрофона: %.3f", viewModel.lastMicRms))
+            Text(String(format: "RMS системы: %.3f", viewModel.lastSystemRms))
+            Text(viewModel.isUserSpeaking ? "Статус микрофона: говорю" : "Статус микрофона: молчу")
+        }
+        .font(.caption.monospaced())
+        .lineLimit(1)
+        .frame(minWidth: 220, alignment: .leading)
     }
 
     private var liveTranscript: some View {
@@ -223,26 +303,33 @@ public struct ContentView: View {
         }
     }
 
-    private var sidebar: some View {
+    private var sidebarCards: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Карточки")
                 .font(.title3.weight(.semibold))
 
-            if let card = viewModel.activeCard {
-                InsightCardView(
-                    card: card,
-                    collapsed: viewModel.isCardCollapsed,
-                    onPin: { viewModel.togglePinActiveCard() },
-                    onCopy: { viewModel.copyActiveReply() },
-                    onUseful: { viewModel.markActiveCardUseful() },
-                    onUseless: { viewModel.markActiveCardUseless() },
-                    onExclude: { viewModel.excludeActiveCardPattern() },
-                    onClose: { viewModel.dismissActiveCard() }
-                )
-            } else {
-                Text("Активной карточки нет")
+            if viewModel.activeCards.isEmpty {
+                Text("Активных карточек нет")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(viewModel.activeCards) { card in
+                            InsightCardView(
+                                card: card,
+                                collapsed: viewModel.isCardCollapsed,
+                                onPin: { viewModel.togglePin(cardID: card.id) },
+                                onCopy: { viewModel.copyReply(cardID: card.id) },
+                                onUseful: { viewModel.markCardUseful(cardID: card.id) },
+                                onUseless: { viewModel.markCardUseless(cardID: card.id) },
+                                onExclude: { viewModel.excludeCardPattern(cardID: card.id) },
+                                onDetach: { viewModel.detachCard(cardID: card.id) },
+                                onClose: { viewModel.dismissCard(cardID: card.id) }
+                            )
+                        }
+                    }
+                }
             }
 
             Divider()
@@ -254,6 +341,9 @@ public struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(viewModel.recentCards) { card in
                         VStack(alignment: .leading, spacing: 4) {
+                            Text(card.agentName ?? "Оркестратор")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
                             Text(card.insight)
                                 .font(.subheadline)
                                 .lineLimit(2)
@@ -268,9 +358,11 @@ public struct ContentView: View {
                     }
                 }
             }
+        }
+    }
 
-            Divider()
-
+    private var sidebarHistory: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("История сессий")
                     .font(.headline)
@@ -320,8 +412,6 @@ public struct ContentView: View {
                         .textSelection(.enabled)
                 }
             }
-
-            Spacer()
         }
     }
 

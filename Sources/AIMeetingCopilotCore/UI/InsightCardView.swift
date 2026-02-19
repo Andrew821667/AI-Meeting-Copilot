@@ -8,6 +8,7 @@ public struct InsightCardView: View {
     public let onUseful: () -> Void
     public let onUseless: () -> Void
     public let onExclude: () -> Void
+    public let onDetach: () -> Void
     public let onClose: () -> Void
 
     public init(
@@ -18,6 +19,7 @@ public struct InsightCardView: View {
         onUseful: @escaping () -> Void,
         onUseless: @escaping () -> Void,
         onExclude: @escaping () -> Void,
+        onDetach: @escaping () -> Void,
         onClose: @escaping () -> Void
     ) {
         self.card = card
@@ -27,6 +29,7 @@ public struct InsightCardView: View {
         self.onUseful = onUseful
         self.onUseless = onUseless
         self.onExclude = onExclude
+        self.onDetach = onDetach
         self.onClose = onClose
     }
 
@@ -35,6 +38,10 @@ public struct InsightCardView: View {
             HStack {
                 Text(card.isFallback ? "Резервная карточка" : "Карточка-подсказка")
                     .font(.headline)
+                Spacer()
+                Text(card.agentName ?? "Оркестратор")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Text(localizedSeverity(card.severity))
                     .font(.caption2.monospaced())
@@ -63,6 +70,7 @@ public struct InsightCardView: View {
             HStack {
                 Button(card.pinned ? "Открепить" : "Закрепить") { onPin() }
                 Button("Копировать") { onCopy() }
+                Button("Вынести") { onDetach() }
                 Button("×") { onClose() }
                 Spacer()
                 Text(localizedSpeaker(card.speaker))

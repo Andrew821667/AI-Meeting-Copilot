@@ -11,6 +11,7 @@ public struct InsightCard: Codable, Identifiable {
     public var severity: String
     public let timestamp: Double
     public let speaker: String
+    public var agentName: String?
     public var isFallback: Bool
     public var dismissed: Bool
     public var pinned: Bool
@@ -27,6 +28,7 @@ public struct InsightCard: Codable, Identifiable {
         severity: String,
         timestamp: Double,
         speaker: String,
+        agentName: String? = nil,
         isFallback: Bool = false,
         dismissed: Bool = false,
         pinned: Bool = false,
@@ -42,6 +44,7 @@ public struct InsightCard: Codable, Identifiable {
         self.severity = severity
         self.timestamp = timestamp
         self.speaker = speaker
+        self.agentName = agentName
         self.isFallback = isFallback
         self.dismissed = dismissed
         self.pinned = pinned
@@ -59,6 +62,7 @@ public struct InsightCard: Codable, Identifiable {
         case severity
         case timestamp
         case speaker
+        case agentName = "agent_name"
         case isFallback = "is_fallback"
         case dismissed
         case pinned

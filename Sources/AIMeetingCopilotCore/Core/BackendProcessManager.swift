@@ -1,9 +1,26 @@
 import Foundation
 
-public enum BackendProcessError: Error {
-    case backendScriptNotFound
-    case processFailedToStart
+public enum BackendProcessError: LocalizedError {
+    case backendScriptNotFound(String)
+    case pythonExecutableNotFound
+    case processFailedToStart(String)
     case socketNotReady(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .backendScriptNotFound(let path):
+            return "Не найден backend скрипт: \(path)"
+        case .pythonExecutableNotFound:
+            return "Не найден Python 3 для запуска backend"
+        case .processFailedToStart(let details):
+            if details.isEmpty {
+                return "Backend процесс не стартовал"
+            }
+            return "Backend процесс не стартовал: \(details)"
+        case .socketNotReady(let details):
+            return "Backend не открыл UDS-сокет: \(details)"
+        }
+    }
 }
 
 public actor BackendProcessManager {
@@ -25,7 +42,8 @@ public actor BackendProcessManager {
         }
 
         let process = Process()
-        let exportsDir = ((FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports"))
+        let exportsDir = resolveExportsDirectory()
+        try? FileManager.default.createDirectory(atPath: exportsDir, withIntermediateDirectories: true, attributes: nil)
         process.executableURL = URL(fileURLWithPath: launch.executablePath)
         process.arguments = launch.arguments + ["--socket", socket, "--exports-dir", exportsDir]
 
@@ -36,7 +54,7 @@ public actor BackendProcessManager {
         do {
             try process.run()
         } catch {
-            throw BackendProcessError.processFailedToStart
+            throw BackendProcessError.processFailedToStart(error.localizedDescription)
         }
 
         self.process = process
@@ -46,10 +64,15 @@ public actor BackendProcessManager {
             if FileManager.default.fileExists(atPath: socket) {
                 return socket
             }
+            if !process.isRunning {
+                let details = Self.readPipeOutput(pipe: outputPipe)
+                throw BackendProcessError.processFailedToStart(details)
+            }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
 
-        throw BackendProcessError.socketNotReady(socket)
+        let details = Self.readPipeOutput(pipe: outputPipe)
+        throw BackendProcessError.socketNotReady(details.isEmpty ? socket : details)
     }
 
     public func stop() {
@@ -82,17 +105,19 @@ public actor BackendProcessManager {
             }
             let packagedScript = (resourceRoot as NSString).appendingPathComponent("backend/main.py")
             if FileManager.default.fileExists(atPath: packagedScript) {
-                return BackendLaunch(executablePath: "/usr/bin/env", arguments: ["python3", packagedScript])
+                let python = try resolvePythonExecutable()
+                return BackendLaunch(executablePath: python, arguments: [packagedScript])
             }
         }
 
         // 3) Dev fallback (python script from workspace).
         let backendPath = resolveBackendScriptPath()
         guard FileManager.default.fileExists(atPath: backendPath) else {
-            throw BackendProcessError.backendScriptNotFound
+            throw BackendProcessError.backendScriptNotFound(backendPath)
         }
 
-        return BackendLaunch(executablePath: "/usr/bin/env", arguments: ["python3", backendPath])
+        let python = try resolvePythonExecutable()
+        return BackendLaunch(executablePath: python, arguments: [backendPath])
     }
 
     private func resolveBackendScriptPath() -> String {
@@ -102,5 +127,43 @@ public actor BackendProcessManager {
 
         let cwd = FileManager.default.currentDirectoryPath
         return (cwd as NSString).appendingPathComponent("backend/main.py")
+    }
+
+    private func resolveExportsDirectory() -> String {
+        if let explicit = ProcessInfo.processInfo.environment["AIMC_EXPORTS_DIR"], !explicit.isEmpty {
+            return explicit
+        }
+
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
+            return root.appendingPathComponent("exports", isDirectory: true).path
+        }
+
+        return (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
+    }
+
+    private func resolvePythonExecutable() throws -> String {
+        if let explicit = ProcessInfo.processInfo.environment["AIMC_PYTHON_EXECUTABLE"],
+           FileManager.default.isExecutableFile(atPath: explicit) {
+            return explicit
+        }
+
+        let candidates = [
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3"
+        ]
+
+        if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return found
+        }
+
+        throw BackendProcessError.pythonExecutableNotFound
+    }
+
+    private static func readPipeOutput(pipe: Pipe) -> String {
+        let data = pipe.fileHandleForReading.availableData
+        guard !data.isEmpty else { return "" }
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -7,6 +7,7 @@ APP_NAME="AIMeetingCopilot"
 APP_BUNDLE="$OUTPUT_DIR/${APP_NAME}.app"
 WITH_BACKEND=1
 ICON_PATH="$ROOT_DIR/Resources/AppIcon.icns"
+APP_IDENTIFIER="com.andrew821667.ai-meeting-copilot"
 
 usage() {
   cat <<EOF
@@ -98,6 +99,8 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
   <string>13.0</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Приложению нужен доступ к микрофону для анализа встречи.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Приложению нужен доступ к распознаванию речи для живой транскрипции.</string>
   <key>NSScreenCaptureDescription</key>
   <string>Приложению нужен доступ к записи экрана для захвата аудио собеседника.</string>
 </dict>
@@ -110,5 +113,8 @@ if [[ "$WITH_BACKEND" -eq 1 ]]; then
   echo "Упаковка backend в app bundle..."
   "$ROOT_DIR/tools/package_backend.sh" "$APP_BUNDLE"
 fi
+
+echo "Подпись app bundle (ad-hoc, стабильный identifier: $APP_IDENTIFIER)..."
+codesign --force --deep --sign - --identifier "$APP_IDENTIFIER" "$APP_BUNDLE"
 
 echo "Готово: $APP_BUNDLE"

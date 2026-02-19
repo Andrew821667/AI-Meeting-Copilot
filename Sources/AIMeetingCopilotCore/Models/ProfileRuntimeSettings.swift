@@ -6,19 +6,22 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var maxCardsPer10Min: Int
     public var minPauseSec: Double
     public var minContextMin: Int
+    public var forceAnswerMode: Bool
 
     public init(
         threshold: Double,
         cooldownSec: Double,
         maxCardsPer10Min: Int,
         minPauseSec: Double,
-        minContextMin: Int
+        minContextMin: Int,
+        forceAnswerMode: Bool = false
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
         self.maxCardsPer10Min = maxCardsPer10Min
         self.minPauseSec = minPauseSec
         self.minContextMin = minContextMin
+        self.forceAnswerMode = forceAnswerMode
     }
 
     enum CodingKeys: String, CodingKey {
@@ -27,6 +30,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case maxCardsPer10Min = "max_cards_per_10min"
         case minPauseSec = "min_pause_sec"
         case minContextMin = "min_context_min"
+        case forceAnswerMode = "force_answer_mode"
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

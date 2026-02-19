@@ -31,6 +31,7 @@ class Profile:
     semantic_enabled: bool
     trigger_vocab: list[TriggerRule]
     negative_rules: list[NegativeRule]
+    force_answer_mode: bool = False
 
 
 def _negotiation() -> Profile:
@@ -212,6 +213,7 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         semantic_enabled=bool(overrides.get("semantic_enabled", profile.semantic_enabled)),
         trigger_vocab=profile.trigger_vocab,
         negative_rules=profile.negative_rules,
+        force_answer_mode=bool(overrides.get("force_answer_mode", profile.force_answer_mode)),
     )
 
 
@@ -225,4 +227,5 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "card_mode": profile.card_mode,
         "emotion_enabled": profile.emotion_enabled,
         "semantic_enabled": profile.semantic_enabled,
+        "force_answer_mode": profile.force_answer_mode,
     }

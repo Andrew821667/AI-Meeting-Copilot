@@ -4,6 +4,34 @@ import Combine
 import QuartzCore
 import AppKit
 
+public enum CaptureSourceMode: String, CaseIterable, Identifiable, Sendable {
+    case meeting = "meeting"
+    case micOnly = "mic_only"
+    case offlineMeetings = "offline_meetings"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .meeting:
+            return "Встреча (собеседник + я)"
+        case .micOnly:
+            return "Только микрофон (офлайн)"
+        case .offlineMeetings:
+            return "Офлайн встречи (анализ записи)"
+        }
+    }
+
+    public var requiresScreenPermission: Bool {
+        switch self {
+        case .meeting:
+            return true
+        case .micOnly, .offlineMeetings:
+            return false
+        }
+    }
+}
+
 @MainActor
 public final class MainViewModel: ObservableObject {
     @Published public private(set) var sessionState: SessionState = .idle
@@ -15,6 +43,7 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var onboardingReady = false
 
     @Published public private(set) var activeCard: InsightCard?
+    @Published public private(set) var activeCards: [InsightCard] = []
     @Published public private(set) var recentCards: [InsightCard] = []
     @Published public private(set) var isCardCollapsed = false
 
@@ -28,10 +57,12 @@ public final class MainViewModel: ObservableObject {
 
     @Published public var selectedProfileID: String = "negotiation"
     @Published public var selectedASRProviderID: String = ASRProviderOption.whisperKit.id
+    @Published public var selectedCaptureSourceMode: CaptureSourceMode = .meeting
     @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
 
     public let availableProfiles: [ProfileOption] = ProfileOption.all
     public let availableASRProviders: [ASRProviderOption] = ASRProviderOption.all
+    public let availableCaptureSourceModes: [CaptureSourceMode] = CaptureSourceMode.allCases
     public let permissionsManager: PermissionsManager
 
     private let stateMachine = SessionStateMachine()
@@ -45,6 +76,7 @@ public final class MainViewModel: ObservableObject {
     private let historyStore = SessionHistoryStore()
     private let excludePhraseStore = ExcludePhraseStore()
     private let calendarSuggester = CalendarProfileSuggester()
+    private let detachedCardWindowManager = DetachedCardWindowManager()
 
     private var transcriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
@@ -57,50 +89,62 @@ public final class MainViewModel: ObservableObject {
     private let telemetrySeq = SequenceNumberGenerator(startAt: 100_000)
     private var isApplyingCalendarSuggestion = false
     private var hasManualProfileSelection = false
+    private var permissionBurstTask: Task<Void, Never>?
 
     public init(asrProvider: ASRProvider = WhisperKitProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
         self.asrProvider = asrProvider
         self.permissionsManager = permissionsManager
 
-        onboardingReady = permissionsManager.checklist.isReadyForCapture
+        onboardingReady = false
         profileSettings = .defaults(for: selectedProfileID)
         sessionHistory = historyStore.loadHistory()
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
+        recomputeOnboardingReadiness()
 
         micCaptureService.onMicEvent = { [weak self] event in
-            guard let self else { return }
-            self.handleMicEvent(event)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleMicEvent(event)
+            }
         }
 
         micCaptureService.onAudioLevel = { [weak self] event in
-            self?.handleMicAudioLevel(event)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleMicAudioLevel(event)
+            }
         }
 
         systemAudioService.onAudioLevel = { [weak self] event in
-            self?.handleSystemAudioLevel(event)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleSystemAudioLevel(event)
+            }
         }
 
         systemAudioService.onCaptureModeChanged = { [weak self] mode, reason in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                self.captureMode = mode
-                self.errorMessage = reason
+            DispatchQueue.main.async { [weak self] in
+                self?.captureMode = mode
+                self?.errorMessage = reason
             }
         }
 
         udsClient.onInsightCard = { [weak self] card in
-            self?.handleIncomingCard(card)
+            DispatchQueue.main.async { [weak self] in
+                self?.handleIncomingCard(card)
+            }
         }
 
         udsClient.onSessionSummary = { [weak self] summary in
-            self?.lastSessionSummary = summary
-            self?.reloadSessionHistory()
+            DispatchQueue.main.async { [weak self] in
+                self?.lastSessionSummary = summary
+                self?.reloadSessionHistory()
+            }
         }
 
         udsClient.onSessionAck = { _ in }
 
         udsClient.onRuntimeWarning = { [weak self] message in
-            self?.showRuntimeWarning(message)
+            DispatchQueue.main.async { [weak self] in
+                self?.showRuntimeWarning(message)
+            }
         }
 
         udsClient.onError = { [weak self] message in
@@ -111,8 +155,8 @@ public final class MainViewModel: ObservableObject {
 
         permissionsManager.$checklist
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] checklist in
-                self?.onboardingReady = checklist.isReadyForCapture
+            .sink { [weak self] _ in
+                self?.recomputeOnboardingReadiness()
             }
             .store(in: &cancellables)
 
@@ -138,9 +182,29 @@ public final class MainViewModel: ObservableObject {
                 if self.sessionState == .capturing || self.sessionState == .paused {
                     return
                 }
-                self.asrProvider = ASRProviderFactory.make(optionID: providerID)
+                self.asrProvider = self.makeASRProvider(optionID: providerID, captureMode: self.selectedCaptureSourceMode)
+                self.recomputeOnboardingReadiness()
             }
             .store(in: &cancellables)
+
+        $selectedCaptureSourceMode
+            .dropFirst()
+            .sink { [weak self] mode in
+                guard let self else { return }
+                if self.sessionState != .capturing && self.sessionState != .paused {
+                    self.asrProvider = self.makeASRProvider(optionID: self.selectedASRProviderID, captureMode: mode)
+                }
+                self.recomputeOnboardingReadiness()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                self?.refreshPermissionsOnAppActivated()
+            }
+            .store(in: &cancellables)
+
+        self.asrProvider = makeASRProvider(optionID: selectedASRProviderID, captureMode: selectedCaptureSourceMode)
     }
 }
 
@@ -191,8 +255,100 @@ private struct ExcludePhrasePayload: Codable, Sendable {
 }
 
 public extension MainViewModel {
+    var microphonePermissionGranted: Bool {
+        permissionsManager.checklist.microphonePermissionGranted
+    }
+
+    var speechPermissionGranted: Bool {
+        permissionsManager.checklist.speechRecognitionPermissionGranted
+    }
+
+    var screenPermissionGranted: Bool {
+        permissionsManager.checklist.screenRecordingPermissionGranted
+    }
+
+    var consentAccepted: Bool {
+        permissionsManager.checklist.oneTimeAcknowledgementAccepted
+    }
+
+    var hasPendingPermissionItems: Bool {
+        !microphonePermissionGranted || !speechPermissionGranted || !consentAccepted || (requiresScreenPermission && !screenPermissionGranted)
+    }
+
+    var requiresScreenPermission: Bool {
+        selectedCaptureSourceMode.requiresScreenPermission
+    }
+
+    var requiresSpeechPermission: Bool {
+        selectedASRProviderID == ASRProviderOption.whisperKit.id
+    }
+
+    var speechPermissionMissingForSelectedASR: Bool {
+        requiresSpeechPermission && !permissionsManager.checklist.speechRecognitionPermissionGranted
+    }
+
+    var screenPermissionMissingForMeetingMode: Bool {
+        selectedCaptureSourceMode == .meeting && !permissionsManager.checklist.screenRecordingPermissionGranted
+    }
+
+    var startGuideText: String {
+        let checklist = permissionsManager.checklist
+        if onboardingReady {
+            switch selectedCaptureSourceMode {
+            case .meeting:
+                return "Готово: нажмите «Начать захват», чтобы анализировать встречу в реальном времени."
+            case .micOnly:
+                return "Готово: нажмите «Начать захват» для офлайн-режима только через микрофон."
+            case .offlineMeetings:
+                return "Готово: нажмите «Начать захват» и говорите в микрофон для анализа офлайн-встречи."
+            }
+        }
+
+        var missing: [String] = []
+        if !checklist.microphonePermissionGranted {
+            missing.append("доступ к микрофону")
+        }
+        if requiresSpeechPermission && !checklist.speechRecognitionPermissionGranted {
+            missing.append("доступ к распознаванию речи")
+        }
+        if requiresScreenPermission && !checklist.screenRecordingPermissionGranted {
+            missing.append("доступ к записи экрана (аудио собеседника)")
+        }
+        if !checklist.oneTimeAcknowledgementAccepted {
+            missing.append("подтверждение права на анализ")
+        }
+        if missing.isEmpty {
+            return "Проверьте выбранный режим и нажмите «Начать захват»."
+        }
+        return "Перед запуском нужно: \(missing.joined(separator: ", "))."
+    }
+
+    var startButtonTitle: String {
+        "Начать захват"
+    }
+
+    var answerModeButtonTitle: String {
+        profileSettings.forceAnswerMode ? "Ответы: ВКЛ" : "Ответы: ВЫКЛ"
+    }
+
+    func toggleForceAnswerMode() {
+        profileSettings.forceAnswerMode.toggle()
+    }
+
     func refreshPermissions() {
         permissionsManager.refresh()
+    }
+
+    func refreshPermissionsWithProbe() {
+        permissionsManager.refresh()
+        guard requiresScreenPermission else { return }
+        guard !permissionsManager.checklist.screenRecordingPermissionGranted else { return }
+        permissionsManager.synchronizeScreenRecordingPermission()
+        guard !permissionsManager.checklist.screenRecordingPermissionGranted else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.permissionsManager.refreshScreenRecordingViaProbe()
+        }
     }
 
     func acceptAcknowledgement() {
@@ -203,8 +359,36 @@ public extension MainViewModel {
         _ = await permissionsManager.requestMicrophonePermission()
     }
 
+    func requestSpeechPermission() async {
+        _ = await permissionsManager.requestSpeechRecognitionPermission()
+    }
+
     func requestScreenPermission() {
         _ = permissionsManager.requestScreenRecordingPermission()
+    }
+
+    func openSystemSettingsMicrophone() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+        schedulePermissionRefreshBurst()
+    }
+
+    func openSystemSettingsScreenRecording() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+        schedulePermissionRefreshBurst()
+    }
+
+    func openSystemSettingsSpeechRecognition() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+        schedulePermissionRefreshBurst()
     }
 
     func reloadSessionHistory() {
@@ -267,21 +451,24 @@ public extension MainViewModel {
 
     func startCapture() {
         guard onboardingReady else {
-            errorMessage = "Завершите первичную настройку перед запуском захвата"
+            errorMessage = startGuideText
             return
         }
 
         errorMessage = nil
         transcript.removeAll(keepingCapacity: true)
         activeCard = nil
+        activeCards.removeAll(keepingCapacity: true)
         recentCards.removeAll(keepingCapacity: true)
         isCardCollapsed = false
         lastSessionSummary = nil
+        detachedCardWindowManager.closeAll()
         sessionStartTime = CACurrentMediaTime()
         telemetrySeq.reset(to: 100_000)
 
         Task {
             do {
+                asrProvider = makeASRProvider(optionID: selectedASRProviderID, captureMode: selectedCaptureSourceMode)
                 let sessionID = try await stateMachine.startCapture()
                 currentSessionID = sessionID
                 sessionState = .capturing
@@ -298,13 +485,29 @@ public extension MainViewModel {
                     )
                 )
 
-                captureMode = .screenCaptureKit
+                captureMode = selectedCaptureSourceMode == .meeting ? .screenCaptureKit : .micOnly
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
 
                 startSystemStateLoop()
                 startASRStreamingTask()
             } catch {
+                transcriptTask?.cancel()
+                transcriptTask = nil
+                stopSystemStateLoop()
+                micCaptureService.stopCapture()
+                systemAudioService.stopCapture()
+                udsClient.disconnect()
+                await backendProcessManager.stop()
+                try? await stateMachine.endCapture()
+                currentSessionID = nil
+                sessionState = .idle
+                captureMode = .off
+                isUserSpeaking = false
+                activeCard = nil
+                activeCards.removeAll(keepingCapacity: true)
+                detachedCardWindowManager.closeAll()
+
                 errorMessage = "Не удалось запустить сессию: \(error.localizedDescription)"
             }
         }
@@ -363,7 +566,7 @@ public extension MainViewModel {
                 }
 
                 await asrProvider.reset()
-                captureMode = .screenCaptureKit
+                captureMode = selectedCaptureSourceMode == .meeting ? .screenCaptureKit : .micOnly
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
 
@@ -414,29 +617,49 @@ public extension MainViewModel {
             captureMode = .off
             isUserSpeaking = false
             isCardCollapsed = false
+            activeCard = nil
+            activeCards.removeAll(keepingCapacity: true)
+            detachedCardWindowManager.closeAll()
         }
     }
 
     func togglePinActiveCard() {
-        guard var card = activeCard else { return }
-        card.pinned.toggle()
-        activeCard = card
-        if card.pinned {
+        guard let id = activeCard?.id else { return }
+        togglePin(cardID: id)
+    }
+
+    func togglePin(cardID: String) {
+        guard let idx = activeCards.firstIndex(where: { $0.id == cardID }) else { return }
+        activeCards[idx].pinned.toggle()
+        if activeCards[idx].pinned {
             isCardCollapsed = false
         }
-        replaceRecent(card)
+        syncActiveCard()
+        replaceRecent(activeCards[idx])
     }
 
     func dismissActiveCard() {
-        guard var card = activeCard else { return }
+        guard let id = activeCard?.id else { return }
+        dismissCard(cardID: id)
+    }
+
+    func dismissCard(cardID: String) {
+        guard let idx = activeCards.firstIndex(where: { $0.id == cardID }) else { return }
+        var card = activeCards[idx]
         card.dismissed = true
-        activeCard = nil
+        activeCards.remove(at: idx)
         isCardCollapsed = false
+        syncActiveCard()
         replaceRecent(card)
     }
 
     func copyActiveReply() {
-        guard let card = activeCard else { return }
+        guard let id = activeCard?.id else { return }
+        copyReply(cardID: id)
+    }
+
+    func copyReply(cardID: String) {
+        guard let card = activeCards.first(where: { $0.id == cardID }) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(card.replyConfident, forType: .string)
     }
@@ -454,18 +677,37 @@ public extension MainViewModel {
     }
 
     func markActiveCardUseful() {
-        sendActiveCardFeedback(useful: true, excluded: false)
+        guard let id = activeCard?.id else { return }
+        markCardUseful(cardID: id)
+    }
+
+    func markCardUseful(cardID: String) {
+        guard let card = activeCards.first(where: { $0.id == cardID }) else { return }
+        sendCardFeedback(card: card, useful: true, excluded: false)
     }
 
     func markActiveCardUseless() {
-        sendActiveCardFeedback(useful: false, excluded: false)
+        guard let id = activeCard?.id else { return }
+        markCardUseless(cardID: id)
+    }
+
+    func markCardUseless(cardID: String) {
+        guard let card = activeCards.first(where: { $0.id == cardID }) else { return }
+        sendCardFeedback(card: card, useful: false, excluded: false)
     }
 
     func excludeActiveCardPattern() {
-        guard var card = activeCard, let sessionID = currentSessionID else { return }
+        guard let id = activeCard?.id else { return }
+        excludeCardPattern(cardID: id)
+    }
 
-        card.excluded = true
-        activeCard = card
+    func excludeCardPattern(cardID: String) {
+        guard let sessionID = currentSessionID else { return }
+        guard let idx = activeCards.firstIndex(where: { $0.id == cardID }) else { return }
+
+        activeCards[idx].excluded = true
+        let card = activeCards[idx]
+        syncActiveCard()
         replaceRecent(card)
 
         let phrase = extractExcludePhrase(from: card)
@@ -495,9 +737,58 @@ public extension MainViewModel {
             }
         }
     }
+
+    func detachCard(cardID: String) {
+        guard let idx = activeCards.firstIndex(where: { $0.id == cardID }) else { return }
+        let card = activeCards[idx]
+        let detached = detachedCardWindowManager.detach(card: card) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.replaceRecent(card)
+            }
+        }
+        guard detached else {
+            errorMessage = "Можно вынести не более 3 карточек одновременно."
+            return
+        }
+
+        activeCards.remove(at: idx)
+        syncActiveCard()
+        replaceRecent(card)
+    }
 }
 
 private extension MainViewModel {
+    func makeASRProvider(optionID: String, captureMode: CaptureSourceMode) -> ASRProvider {
+        if optionID == ASRProviderOption.whisperKit.id && captureMode == .meeting {
+            return SystemSpeechASRProvider()
+        }
+        return ASRProviderFactory.make(optionID: optionID)
+    }
+
+    func refreshPermissionsOnAppActivated() {
+        permissionsManager.refresh()
+        schedulePermissionRefreshBurst()
+    }
+
+    func schedulePermissionRefreshBurst() {
+        permissionBurstTask?.cancel()
+        permissionBurstTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for seconds in [0.6, 1.2, 2.4] {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                self.permissionsManager.refresh()
+            }
+        }
+    }
+
+    func recomputeOnboardingReadiness() {
+        let checklist = permissionsManager.checklist
+        onboardingReady = checklist.microphonePermissionGranted
+            && (!requiresSpeechPermission || checklist.speechRecognitionPermissionGranted)
+            && (!requiresScreenPermission || checklist.screenRecordingPermissionGranted)
+            && checklist.oneTimeAcknowledgementAccepted
+    }
+
     func showRuntimeWarning(_ message: String) {
         runtimeWarningMessage = message
         Task {
@@ -536,8 +827,8 @@ private extension MainViewModel {
         }
     }
 
-    func sendActiveCardFeedback(useful: Bool, excluded: Bool) {
-        guard let card = activeCard, let sessionID = currentSessionID else { return }
+    func sendCardFeedback(card: InsightCard, useful: Bool, excluded: Bool) {
+        guard let sessionID = currentSessionID else { return }
 
         Task {
             do {
@@ -599,7 +890,7 @@ private extension MainViewModel {
                     )
 
                     await MainActor.run {
-                        self.transcript.append(normalized)
+                        self.upsertTranscriptSegment(normalized)
                     }
 
                     do {
@@ -665,7 +956,7 @@ private extension MainViewModel {
         isUserSpeaking = event.eventType != .speechEnd
 
         if event.eventType == .speechStart {
-            if let card = activeCard, !card.pinned {
+            if activeCards.contains(where: { !$0.pinned }) {
                 isCardCollapsed = true
             }
         } else if event.eventType == .speechEnd {
@@ -714,12 +1005,38 @@ private extension MainViewModel {
     }
 
     func handleIncomingCard(_ card: InsightCard) {
-        activeCard = card
+        if let idx = activeCards.firstIndex(where: { $0.id == card.id }) {
+            activeCards[idx] = card
+        } else {
+            activeCards.insert(card, at: 0)
+            if activeCards.count > 3 {
+                activeCards = Array(activeCards.prefix(3))
+            }
+        }
+        syncActiveCard()
         isCardCollapsed = false
 
         recentCards.insert(card, at: 0)
         if recentCards.count > 3 {
             recentCards = Array(recentCards.prefix(3))
+        }
+    }
+
+    func syncActiveCard() {
+        activeCard = activeCards.first
+    }
+
+    func upsertTranscriptSegment(_ segment: TranscriptSegment) {
+        if segment.isFinal {
+            transcript.removeAll { $0.utteranceId == segment.utteranceId && !$0.isFinal }
+            transcript.append(segment)
+            return
+        }
+
+        if let idx = transcript.lastIndex(where: { $0.utteranceId == segment.utteranceId && !$0.isFinal }) {
+            transcript[idx] = segment
+        } else {
+            transcript.append(segment)
         }
     }
 

@@ -11,11 +11,11 @@ public struct ASRProviderOption: Identifiable, Hashable, Sendable {
 
     public static let whisperKit = ASRProviderOption(
         id: "whisperkit",
-        title: "WhisperKit (по умолчанию)"
+        title: "Локальная речь (по умолчанию)"
     )
     public static let qwen3ASR = ASRProviderOption(
         id: "qwen3_asr",
-        title: "Qwen3-ASR (экспериментально)"
+        title: "Qwen3-ASR (демо)"
     )
 
     public static let all: [ASRProviderOption] = [

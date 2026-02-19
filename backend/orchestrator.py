@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections import deque
@@ -15,6 +16,12 @@ from trigger_scorer import TriggerScorer, normalize
 
 
 class TriggerOrchestrator:
+    AGENT_PROFILES = [
+        ("Агент ответов", "Сфокусируйся на формулировке короткого, уверенного ответа пользователю."),
+        ("Агент рисков", "Сфокусируйся на рисках, уязвимостях и том, что нужно немедленно уточнить."),
+        ("Агент фиксации", "Сфокусируйся на том, что нужно зафиксировать письменно и как это оформить."),
+    ]
+
     def __init__(self, profile: Profile, telemetry: TelemetryCollector | None = None) -> None:
         self.profile = profile
         self.raw_buffer = RawBuffer(max_duration_sec=300)
@@ -36,6 +43,7 @@ class TriggerOrchestrator:
         self.diarization_gate = DiarizationGate()
         self.excluded_phrases: set[str] = set()
         self.degraded_mode = False
+        self.force_answer_mode = profile.force_answer_mode
 
     def set_paused(self, value: bool) -> None:
         self.paused = value
@@ -66,7 +74,7 @@ class TriggerOrchestrator:
         if event.eventType == "speech_end":
             self.mic_speaking = False
             self.last_speech_end_ts = event.timestamp
-            if self.pending_queue:
+            while self.pending_queue and len(cards) < 3:
                 shown = self.pending_queue.popleft()
                 self.telemetry.on_card_shown(shown, shown_ts=event.timestamp)
                 cards.append(shown)
@@ -126,22 +134,50 @@ class TriggerOrchestrator:
         score = self.scorer.compute(segment)
         self.memory_updater.maybe_update(segment=segment, score=score, last_card_severity=self.last_card_severity)
 
+        if self.force_answer_mode and self._looks_like_question(segment.text) and segment.speaker.startswith("THEM"):
+            context = self.raw_buffer.recent_text(max_items=20)
+            trigger_reason = self._build_question_reason(segment)
+            generated = await self._generate_cards_for_agents(
+                speaker=segment.speaker,
+                trigger_reason=trigger_reason,
+                context=context,
+                source_ts_end=segment.tsEnd,
+            )
+            if not generated:
+                return cards
+
+            self.last_card_severity = self._max_severity(generated)
+            self.recent_utterances.append(segment.utteranceId)
+
+            if self.mic_speaking:
+                for card in generated:
+                    self._enqueue_pending(card)
+                return cards
+
+            pause_duration = max(0.0, segment.tsEnd - self.last_speech_end_ts)
+            if pause_duration >= self.profile.min_pause_sec:
+                for card in generated:
+                    self.telemetry.on_card_shown(card, shown_ts=segment.tsEnd)
+                cards.extend(generated)
+            else:
+                for card in generated:
+                    self._enqueue_pending(card)
+            return cards
+
         if not self._should_trigger(score=score, segment=segment):
             return cards
 
         context = self.raw_buffer.recent_text(max_items=20)
         trigger_reason = self._build_trigger_reason(segment=segment, score=score)
-        result = await self.llm.build_card(
-            scenario=self.profile.id,
+        generated = await self._generate_cards_for_agents(
             speaker=segment.speaker,
             trigger_reason=trigger_reason,
             context=context,
             source_ts_end=segment.tsEnd,
         )
-        card = result.card
-        self.last_card_severity = card.severity
-
-        self.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
+        if not generated:
+            return cards
+        self.last_card_severity = self._max_severity(generated)
 
         now = time.monotonic()
         self.last_trigger_ts = now
@@ -150,15 +186,18 @@ class TriggerOrchestrator:
         self._trim_card_window(now)
 
         if self.mic_speaking:
-            self._enqueue_pending(card)
+            for card in generated:
+                self._enqueue_pending(card)
             return cards
 
         pause_duration = max(0.0, segment.tsEnd - self.last_speech_end_ts)
         if pause_duration >= self.profile.min_pause_sec:
-            self.telemetry.on_card_shown(card, shown_ts=segment.tsEnd)
-            cards.append(card)
+            for card in generated:
+                self.telemetry.on_card_shown(card, shown_ts=segment.tsEnd)
+            cards.extend(generated)
         else:
-            self._enqueue_pending(card)
+            for card in generated:
+                self._enqueue_pending(card)
 
         return cards
 
@@ -231,6 +270,55 @@ class TriggerOrchestrator:
     def _build_trigger_reason(self, segment: TranscriptSegment, score: float) -> str:
         snippet = segment.text.strip().replace("\n", " ")[:64]
         return f"обнаружен важный момент (score={score:.2f}): {snippet}"
+
+    def _build_question_reason(self, segment: TranscriptSegment) -> str:
+        snippet = segment.text.strip().replace("\n", " ")[:72]
+        return f"режим ответа на вопросы: вопрос собеседника -> {snippet}"
+
+    def _looks_like_question(self, text: str) -> bool:
+        t = normalize(text)
+        if "?" in text:
+            return True
+        starters = ("как ", "когда ", "почему ", "зачем ", "что ", "кто ", "где ", "какой ", "какая ", "какие ", "можете ", "можно ", "есть ли ")
+        return t.startswith(starters)
+
+    async def _generate_cards_for_agents(
+        self,
+        *,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        source_ts_end: float,
+    ) -> list[InsightCard]:
+        tasks = [
+            self.llm.build_card(
+                scenario=self.profile.id,
+                speaker=speaker,
+                trigger_reason=trigger_reason,
+                context=context,
+                source_ts_end=source_ts_end,
+                agent_name=agent_name,
+                agent_instruction=agent_instruction,
+            )
+            for agent_name, agent_instruction in self.AGENT_PROFILES
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        cards: list[InsightCard] = []
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            self.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
+            cards.append(result.card)
+        return cards
+
+    def _max_severity(self, cards: list[InsightCard]) -> str:
+        rank = {"info": 0, "warning": 1, "alert": 2}
+        top = "info"
+        for card in cards:
+            if rank.get(card.severity, 0) > rank.get(top, 0):
+                top = card.severity
+        return top
 
     def _enqueue_pending(self, card: InsightCard) -> None:
         if len(self.pending_queue) >= self.pending_queue.maxlen:

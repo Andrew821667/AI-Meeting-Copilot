@@ -10,59 +10,99 @@ public struct OnboardingChecklistView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Первичная настройка: разрешения и подтверждение")
+            Text("Разрешения и подтверждение")
                 .font(.title3.weight(.semibold))
 
-            checklistRow(
-                title: "Разрешение на микрофон",
-                granted: viewModel.permissionsManager.checklist.microphonePermissionGranted
-            )
+            Text("Проверяйте статусы перед запуском. Блок всегда доступен для повторной проверки разрешений.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-            checklistRow(
-                title: "Разрешение на запись экрана (для SCK)",
-                granted: viewModel.permissionsManager.checklist.screenRecordingPermissionGranted
-            )
-
-            checklistRow(
-                title: "Однократное подтверждение права на анализ",
-                granted: viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted
-            )
-
-            Toggle(
-                "Я подтверждаю, что имею право записывать и анализировать встречи в своих сценариях использования.",
-                isOn: $consentChecked
-            )
-            .toggleStyle(.checkbox)
-            .disabled(viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted)
-
-            HStack(spacing: 10) {
-                Button("Запросить доступ к микрофону") {
-                    Task { await viewModel.requestMicPermission() }
+            if !viewModel.microphonePermissionGranted {
+                checklistRow(title: "Разрешение на микрофон", granted: false)
+                HStack(spacing: 8) {
+                    Button("Запросить доступ к микрофону") {
+                        Task { await viewModel.requestMicPermission() }
+                    }
+                    Button("Открыть настройки микрофона") {
+                        viewModel.openSystemSettingsMicrophone()
+                    }
                 }
-                Button("Запросить доступ к записи экрана") {
-                    viewModel.requestScreenPermission()
+            }
+
+            if !viewModel.speechPermissionGranted {
+                checklistRow(title: "Доступ к распознаванию речи", granted: false)
+                HStack(spacing: 8) {
+                    Button("Запросить доступ к распознаванию") {
+                        Task { await viewModel.requestSpeechPermission() }
+                    }
+                    Button("Открыть настройки распознавания") {
+                        viewModel.openSystemSettingsSpeechRecognition()
+                    }
                 }
+            }
+
+            if viewModel.requiresScreenPermission && !viewModel.screenPermissionGranted {
+                checklistRow(title: "Доступ к аудио собеседника (запись экрана)", granted: false)
+                HStack(spacing: 8) {
+                    Button("Запросить доступ к аудио собеседника") {
+                        viewModel.requestScreenPermission()
+                    }
+                    Button("Открыть настройки записи экрана") {
+                        viewModel.openSystemSettingsScreenRecording()
+                    }
+                }
+            }
+
+            if !viewModel.consentAccepted {
+                checklistRow(title: "Однократное подтверждение права на анализ", granted: false)
+                Toggle(
+                    "Я подтверждаю, что имею право записывать и анализировать встречи в своих сценариях использования.",
+                    isOn: $consentChecked
+                )
+                .toggleStyle(.checkbox)
+
                 Button("Подтвердить согласие") {
                     viewModel.acceptAcknowledgement()
                 }
-                .disabled(!consentChecked || viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted)
+                .disabled(!consentChecked)
+            }
+
+            if viewModel.hasPendingPermissionItems {
                 Button("Обновить статус") {
-                    viewModel.refreshPermissions()
+                    viewModel.refreshPermissionsWithProbe()
                 }
+            } else {
+                Text("Все обязательные доступы выданы. Управление статусами и доступами доступно в верхнем меню приложения: «Доступы».")
+                    .font(.footnote)
+                    .foregroundStyle(.green)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Text("Согласие версии v\(PermissionsManager.currentConsentVersion) сохраняется локально. Во время встречи показывается только локальный индикатор CAPTURE; всплывающие уведомления отключены.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if viewModel.screenPermissionMissingForMeetingMode {
+                Text("Для режима «Встреча (собеседник + я)» доступ к записи экрана обязателен: иначе не будет аудио собеседника.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(viewModel.startGuideText)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(viewModel.onboardingReady ? (viewModel.screenPermissionMissingForMeetingMode ? .orange : .green) : .orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onAppear {
-            if viewModel.permissionsManager.checklist.oneTimeAcknowledgementAccepted {
+            if viewModel.consentAccepted {
                 consentChecked = true
             }
+            viewModel.refreshPermissions()
         }
     }
 

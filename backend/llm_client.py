@@ -139,7 +139,16 @@ class RealtimeLLMClient:
             return default
         return max(min_value, min(max_value, value))
 
-    async def build_card(self, scenario: str, speaker: str, trigger_reason: str, context: str, source_ts_end: float) -> LLMCallResult:
+    async def build_card(
+        self,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        source_ts_end: float,
+        agent_name: str = "Оркестратор",
+        agent_instruction: str = "",
+    ) -> LLMCallResult:
         started = time.perf_counter()
         try:
             card = await asyncio.wait_for(
@@ -149,6 +158,8 @@ class RealtimeLLMClient:
                     trigger_reason=trigger_reason,
                     context=context,
                     source_ts_end=source_ts_end,
+                    agent_name=agent_name,
+                    agent_instruction=agent_instruction,
                 ),
                 timeout=self.timeout_sec,
             )
@@ -159,6 +170,7 @@ class RealtimeLLMClient:
                 speaker=speaker,
                 trigger_reason=trigger_reason,
                 source_ts_end=source_ts_end,
+                agent_name=agent_name,
             )
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=True)
         except Exception:
@@ -167,10 +179,20 @@ class RealtimeLLMClient:
                 speaker=speaker,
                 trigger_reason=trigger_reason,
                 source_ts_end=source_ts_end,
+                agent_name=agent_name,
             )
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
 
-    async def _generate_card(self, scenario: str, speaker: str, trigger_reason: str, context: str, source_ts_end: float) -> InsightCard:
+    async def _generate_card(
+        self,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        source_ts_end: float,
+        agent_name: str,
+        agent_instruction: str,
+    ) -> InsightCard:
         if self.transport is None:
             await asyncio.sleep(0.20)
             return self._heuristic_card(
@@ -179,9 +201,12 @@ class RealtimeLLMClient:
                 trigger_reason=trigger_reason,
                 context=context,
                 source_ts_end=source_ts_end,
+                agent_name=agent_name,
             )
 
         prompt = (
+            f"Агент: {agent_name}\n"
+            f"Инструкция агента: {agent_instruction or 'Дай краткую прикладную подсказку.'}\n"
             f"Сценарий: {scenario}\n"
             f"Спикер: {speaker}\n"
             f"Причина триггера: {trigger_reason}\n"
@@ -195,9 +220,18 @@ class RealtimeLLMClient:
             speaker=speaker,
             trigger_reason=trigger_reason,
             source_ts_end=source_ts_end,
+            agent_name=agent_name,
         )
 
-    def _heuristic_card(self, scenario: str, speaker: str, trigger_reason: str, context: str, source_ts_end: float) -> InsightCard:
+    def _heuristic_card(
+        self,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        source_ts_end: float,
+        agent_name: str,
+    ) -> InsightCard:
         brief = context.strip().splitlines()[-1] if context.strip() else "Контекст ограничен"
         return InsightCard(
             id=str(uuid.uuid4()),
@@ -210,6 +244,7 @@ class RealtimeLLMClient:
             severity="warning",
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
+            agent_name=agent_name,
             is_fallback=False,
             source_ts_end=source_ts_end,
         )
@@ -222,6 +257,7 @@ class RealtimeLLMClient:
         speaker: str,
         trigger_reason: str,
         source_ts_end: float,
+        agent_name: str,
     ) -> InsightCard:
         insight = (payload.get("insight") or "").strip()
         reply_cautious = (payload.get("reply_cautious") or "").strip()
@@ -249,11 +285,12 @@ class RealtimeLLMClient:
             severity=severity,
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
+            agent_name=agent_name,
             is_fallback=False,
             source_ts_end=source_ts_end,
         )
 
-    def _fallback_card(self, scenario: str, speaker: str, trigger_reason: str, source_ts_end: float) -> InsightCard:
+    def _fallback_card(self, scenario: str, speaker: str, trigger_reason: str, source_ts_end: float, agent_name: str) -> InsightCard:
         return InsightCard(
             id=str(uuid.uuid4()),
             scenario=scenario,
@@ -265,6 +302,7 @@ class RealtimeLLMClient:
             severity="warning",
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
+            agent_name=agent_name,
             is_fallback=True,
             source_ts_end=source_ts_end,
         )

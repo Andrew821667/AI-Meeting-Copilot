@@ -64,6 +64,7 @@ class InsightCard:
     severity: str
     timestamp: float
     speaker: str
+    agent_name: str = "Оркестратор"
     is_fallback: bool = False
     dismissed: bool = False
     pinned: bool = False
