@@ -38,7 +38,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case "negotiation":
             return .init(threshold: 0.60, cooldownSec: 90, maxCardsPer10Min: 4, minPauseSec: 1.5, minContextMin: 2)
         case "interview_candidate":
-            return .init(threshold: 0.70, cooldownSec: 90, maxCardsPer10Min: 3, minPauseSec: 1.5, minContextMin: 1)
+            return .init(threshold: 0.70, cooldownSec: 90, maxCardsPer10Min: 3, minPauseSec: 1.5, minContextMin: 0)
         case "interview_interviewer":
             return .init(threshold: 0.65, cooldownSec: 90, maxCardsPer10Min: 4, minPauseSec: 1.5, minContextMin: 1)
         case "consulting":

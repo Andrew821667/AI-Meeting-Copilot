@@ -125,6 +125,25 @@ public actor BackendProcessManager {
             return explicit
         }
 
+        // Поиск относительно исполняемого файла (dev-режим из Xcode/swift run)
+        if let executableURL = Bundle.main.executableURL {
+            let projectCandidates = [
+                // swift run: .build/debug/AIMeetingCopilot → ../../backend/main.py
+                executableURL.deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("backend/main.py").path,
+                // Xcode: DerivedData/.../Build/Products/Debug/AIMeetingCopilot → исходники
+                executableURL.deletingLastPathComponent()
+                    .appendingPathComponent("backend/main.py").path,
+            ]
+            for candidate in projectCandidates {
+                if FileManager.default.fileExists(atPath: candidate) {
+                    return candidate
+                }
+            }
+        }
+
         let cwd = FileManager.default.currentDirectoryPath
         return (cwd as NSString).appendingPathComponent("backend/main.py")
     }

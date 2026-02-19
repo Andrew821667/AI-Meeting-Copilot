@@ -70,6 +70,7 @@ public final class MainViewModel: ObservableObject {
     private let micCaptureService = MicrophoneCaptureService()
     private let systemAudioService = SystemAudioCaptureService()
     private var asrProvider: ASRProvider
+    private var micASRProvider: ASRProvider?
     private let hallucinationFilter = HallucinationFilter()
 
     private let backendProcessManager = BackendProcessManager()
@@ -81,6 +82,7 @@ public final class MainViewModel: ObservableObject {
     private let detachedCardWindowManager = DetachedCardWindowManager()
 
     private var transcriptTask: Task<Void, Never>?
+    private var micTranscriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
     private var sessionStartTime: TimeInterval = CACurrentMediaTime()
     private var currentSessionID: UUID?
@@ -539,11 +541,21 @@ public extension MainViewModel {
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
 
+                // В meeting-режиме запускаем второй ASR для транскрипции микрофона (ME)
+                if selectedCaptureSourceMode == .meeting {
+                    micASRProvider = SpeechASRProvider()
+                } else {
+                    micASRProvider = nil
+                }
+
                 startSystemStateLoop()
                 startASRStreamingTask()
+                startMicASRStreamingTaskIfNeeded()
             } catch {
                 transcriptTask?.cancel()
                 transcriptTask = nil
+                micTranscriptTask?.cancel()
+                micTranscriptTask = nil
                 stopSystemStateLoop()
                 micCaptureService.stopCapture()
                 systemAudioService.stopCapture()
@@ -585,6 +597,10 @@ public extension MainViewModel {
                 transcriptTask?.cancel()
                 transcriptTask = nil
 
+                await micASRProvider?.stopStream()
+                micTranscriptTask?.cancel()
+                micTranscriptTask = nil
+
                 micCaptureService.stopCapture()
                 systemAudioService.stopCapture()
                 stopSystemStateLoop()
@@ -616,12 +632,14 @@ public extension MainViewModel {
                 }
 
                 await asrProvider.reset()
+                await micASRProvider?.reset()
                 captureMode = selectedCaptureSourceMode == .meeting ? .screenCaptureKit : .micOnly
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
 
                 startSystemStateLoop()
                 startASRStreamingTask()
+                startMicASRStreamingTaskIfNeeded()
 
                 sessionState = .capturing
             } catch {
@@ -634,8 +652,12 @@ public extension MainViewModel {
         Task {
             transcriptTask?.cancel()
             transcriptTask = nil
+            micTranscriptTask?.cancel()
+            micTranscriptTask = nil
 
             await asrProvider.stopStream()
+            await micASRProvider?.stopStream()
+            micASRProvider = nil
             micCaptureService.stopCapture()
             systemAudioService.stopCapture()
             stopSystemStateLoop()
@@ -1040,6 +1062,48 @@ private extension MainViewModel {
                 await MainActor.run {
                     self.errorMessage = "Ошибка потока ASR: \(error.localizedDescription)"
                 }
+            }
+        }
+    }
+
+    func startMicASRStreamingTaskIfNeeded() {
+        guard let micASR = micASRProvider else { return }
+        micTranscriptTask?.cancel()
+        micTranscriptTask = Task {
+            do {
+                try await micASR.startStream()
+                for await segment in micASR.segments {
+                    guard sessionState == .capturing else { break }
+                    guard let filteredText = hallucinationFilter.apply(text: segment.text, vadDetectedSpeech: true) else {
+                        continue
+                    }
+
+                    let normalized = TranscriptSegment(
+                        schemaVersion: segment.schemaVersion,
+                        seq: segment.seq,
+                        utteranceId: segment.utteranceId,
+                        isFinal: segment.isFinal,
+                        speaker: segment.speaker,
+                        text: filteredText,
+                        tsStart: segment.tsStart,
+                        tsEnd: segment.tsEnd,
+                        speakerConfidence: segment.speakerConfidence
+                    )
+
+                    await MainActor.run {
+                        self.upsertTranscriptSegment(normalized)
+                    }
+
+                    do {
+                        try await udsClient.send(type: "transcript_segment", payload: normalized)
+                    } catch {
+                        await MainActor.run {
+                            self.errorMessage = "Ошибка отправки транскрипции микрофона: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            } catch {
+                // Mic ASR в meeting-режиме — вспомогательный; не показываем ошибку
             }
         }
     }

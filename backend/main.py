@@ -351,12 +351,18 @@ class BackendServer:
             outbound.extend(self._wrap_cards(cards))
         elif msg_type == "transcript_segment":
             seg = TranscriptSegment(**payload)
+            logger.debug(
+                "transcript: speaker=%s isFinal=%s len=%d text=%.80s",
+                seg.speaker, seg.isFinal, len(seg.text), seg.text,
+            )
             if seg.isFinal:
                 self.runtime.transcript.append(seg)
             cards = await self.runtime.orchestrator.on_transcript_segment(seg)
             if self.runtime.profile.force_answer_mode:
                 direct_cards = await self.runtime.orchestrator.on_direct_force_answer_segment(seg)
                 cards.extend(direct_cards)
+            if cards:
+                logger.debug("cards generated: %d [%s]", len(cards), ", ".join(c.agent_name for c in cards))
             outbound.extend(self._wrap_cards(cards))
         elif msg_type == "panic_capture":
             cards = await self.runtime.orchestrator.on_manual_capture()
@@ -406,10 +412,12 @@ class BackendServer:
         session_id = payload.get("session_id", "")
         profile = payload.get("profile", "negotiation")
         profile_overrides = payload.get("profile_overrides")
+        logger.info("session_control: event=%s profile=%s force_answer_mode=%s", event, profile, profile_overrides.get("force_answer_mode") if profile_overrides else None)
 
         if event == "start":
             self.runtime.start(session_id=session_id, profile=profile, profile_overrides=profile_overrides)
             packets = [{"type": "session_ack", "payload": {"event": "start", "session_id": session_id}}]
+            logger.info("Session started: profile=%s force_mode=%s", profile, self.runtime.profile.force_answer_mode)
             if self.runtime.profile.force_answer_mode:
                 cards = await self.runtime.orchestrator.on_force_mode_activated()
                 packets.extend(self._wrap_cards(cards))

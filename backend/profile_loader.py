@@ -67,7 +67,7 @@ def _interview_candidate() -> Profile:
         cooldown_sec=90,
         max_cards_per_10min=3,
         min_pause_sec=1.5,
-        min_context_min=1,
+        min_context_min=0,
         card_mode="reply_suggestions",
         emotion_enabled=False,
         semantic_enabled=False,

@@ -3,16 +3,26 @@ import AVFoundation
 import Speech
 import QuartzCore
 
-private final class SpeechTapProxy {
-    private let request: SFSpeechAudioBufferRecognitionRequest
+private final class RecognitionRequestBridge: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: SFSpeechAudioBufferRecognitionRequest?
 
-    init(request: SFSpeechAudioBufferRecognitionRequest) {
+    func set(_ request: SFSpeechAudioBufferRecognitionRequest?) {
+        lock.lock()
         self.request = request
+        lock.unlock()
+    }
+
+    func append(buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        let request = self.request
+        lock.unlock()
+        request?.append(buffer)
     }
 
     func makeTapBlock() -> AVAudioNodeTapBlock {
         { [weak self] buffer, _ in
-            self?.request.append(buffer)
+            self?.append(buffer: buffer)
         }
     }
 }
@@ -50,8 +60,9 @@ public final class SpeechASRProvider: ASRProvider {
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var tapProxy: SpeechTapProxy?
+    private let requestBridge = RecognitionRequestBridge()
     private let recognizer: SFSpeechRecognizer?
+    private var isRestartingRecognition = false
 
     private var startedAt: TimeInterval = 0
     private var currentUtteranceID = UUID().uuidString
@@ -89,6 +100,36 @@ public final class SpeechASRProvider: ASRProvider {
         lastFinalTs = 0
         lastPartialText = ""
         seqGenerator.reset(to: 50_000)
+        isRunning = true
+
+        try startRecognitionTask(using: recognizer)
+
+        let inputNode = audioEngine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        guard format.channelCount > 0 else {
+            isRunning = false
+            throw SpeechASRError.inputNodeUnavailable
+        }
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: requestBridge.makeTapBlock())
+
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+        } catch {
+            isRunning = false
+            throw SpeechASRError.engineStartFailed(error.localizedDescription)
+        }
+    }
+
+    private func startRecognitionTask(using recognizer: SFSpeechRecognizer) throws {
+        guard recognizer.isAvailable else {
+            throw SpeechASRError.recognizerUnavailable
+        }
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -98,25 +139,9 @@ public final class SpeechASRProvider: ASRProvider {
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
+
         recognitionRequest = request
-
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else {
-            throw SpeechASRError.inputNodeUnavailable
-        }
-
-        inputNode.removeTap(onBus: 0)
-        let tapProxy = SpeechTapProxy(request: request)
-        self.tapProxy = tapProxy
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapProxy.makeTapBlock())
-
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
-        } catch {
-            throw SpeechASRError.engineStartFailed(error.localizedDescription)
-        }
+        requestBridge.set(request)
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result {
@@ -124,14 +149,12 @@ public final class SpeechASRProvider: ASRProvider {
                     self?.emit(result: result)
                 }
             }
-            if error != nil {
+            if let error {
                 Task { @MainActor [weak self] in
-                    self?.stopInternal()
+                    await self?.handleRecognitionFailure(error)
                 }
             }
         }
-
-        isRunning = true
     }
 
     public func stopStream() async {
@@ -141,6 +164,40 @@ public final class SpeechASRProvider: ASRProvider {
     public func reset() async {
         stopInternal()
         seqGenerator.reset(to: 50_000)
+    }
+
+    private func handleRecognitionFailure(_ error: Error) async {
+        guard isRunning else { return }
+        guard !Task.isCancelled else { return }
+        guard !isRestartingRecognition else { return }
+        guard let recognizer else { return }
+
+        isRestartingRecognition = true
+
+        // Остановить только recognition, аудио-движок продолжает работать
+        recognitionRequest?.endAudio()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        requestBridge.set(nil)
+
+        // Новый utterance после перезапуска
+        currentUtteranceID = UUID().uuidString
+        lastPartialText = ""
+
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        guard isRunning else {
+            isRestartingRecognition = false
+            return
+        }
+
+        do {
+            try startRecognitionTask(using: recognizer)
+        } catch {
+            // Не роняем сессию — попробуем при следующем сбое
+        }
+        isRestartingRecognition = false
     }
 
     private func emit(result: SFSpeechRecognitionResult) {
@@ -181,6 +238,7 @@ public final class SpeechASRProvider: ASRProvider {
     private func stopInternal() {
         guard isRunning else { return }
         isRunning = false
+        isRestartingRecognition = false
 
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
@@ -189,7 +247,7 @@ public final class SpeechASRProvider: ASRProvider {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        tapProxy = nil
+        requestBridge.set(nil)
     }
 
     nonisolated private static func resolveSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {

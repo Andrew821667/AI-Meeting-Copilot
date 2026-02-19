@@ -174,6 +174,19 @@ class TriggerOrchestrator:
             return cards
 
         if self.force_answer_mode and self._should_force_answer(segment):
+            # Сохраняем сегмент в буферы ДО генерации — иначе контекст для LLM деградирует.
+            # Partial-сегменты не добавляем в history (final перезапишет), но в raw_buffer — да.
+            if segment.isFinal:
+                self.transcript_history.append(segment)
+            self.raw_buffer.append(
+                RawBufferEntry(
+                    speaker=segment.speaker,
+                    text=segment.text,
+                    ts_start=segment.tsStart,
+                    ts_end=segment.tsEnd,
+                )
+            )
+
             context = self._build_force_context(segment)
             trigger_reason = self._build_force_answer_reason(segment)
             generated = await self._generate_cards_for_profiles(
@@ -504,9 +517,6 @@ class TriggerOrchestrator:
         return any(marker in t for marker in interview_markers)
 
     def _should_force_answer(self, segment: TranscriptSegment) -> bool:
-        if not segment.isFinal:
-            return False
-
         if segment.utteranceId in self.force_answer_seen_utterances:
             return False
 
@@ -514,18 +524,27 @@ class TriggerOrchestrator:
             return False
 
         normalized = normalize(segment.text)
-        if len(normalized) < 5:
-            return False
-        if len(normalized.split()) < 2:
-            return False
 
-        now = time.monotonic()
-        if (now - self.last_force_answer_ts) < self.force_answer_min_interval_sec:
-            return False
+        if not segment.isFinal:
+            # Partial-сегменты: генерируем реже и только для длинных фраз
+            if len(normalized.split()) < 5:
+                return False
+            now = time.monotonic()
+            if (now - self.last_force_answer_ts) < max(3.0, self.force_answer_min_interval_sec):
+                return False
+        else:
+            if len(normalized) < 5:
+                return False
+            if len(normalized.split()) < 2:
+                return False
+            now = time.monotonic()
+            if (now - self.last_force_answer_ts) < self.force_answer_min_interval_sec:
+                return False
 
         # Для профиля "я кандидат" режим должен быть максимально надежным:
-        # генерируем ответ почти на каждую содержательную реплику интервьюера.
-        if self.profile.id == "interview_candidate" and segment.speaker in {"THEM", "THEM_A", "THEM_B"}:
+        # генерируем ответ почти на каждую содержательную реплику.
+        # В онлайне сегменты приходят как THEM, в офлайн-режиме (mic-only) — как ME.
+        if self.profile.id == "interview_candidate":
             return True
 
         # В офлайн-режиме (mic-only) сегменты приходят как ME.
