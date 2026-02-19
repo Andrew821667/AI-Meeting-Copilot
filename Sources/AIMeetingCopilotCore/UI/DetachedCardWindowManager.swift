@@ -16,8 +16,11 @@ public final class DetachedCardWindowManager: NSObject {
     }
 
     public func detach(card: InsightCard, onClose: @escaping () -> Void) -> Bool {
-        if windows[card.id] != nil {
-            windows[card.id]?.makeKeyAndOrderFront(nil)
+        let slot = slotKey(for: card)
+        if let existing = windows[slot] {
+            onCloseHandlers[slot] = onClose
+            apply(card: card, to: existing, slotKey: slot)
+            existing.makeKeyAndOrderFront(nil)
             return true
         }
         guard windows.count < 3 else {
@@ -32,18 +35,17 @@ public final class DetachedCardWindowManager: NSObject {
         )
         window.title = "Карточка — \(card.agentName ?? "Оркестратор")"
         window.isReleasedWhenClosed = false
+        window.isMovableByWindowBackground = true
+        window.isOpaque = true
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0)
 
         // Гарантия: окно не попадает в screen sharing/захват экрана.
         window.sharingType = .none
 
-        let closeAction: () -> Void = { [weak self] in
-            self?.close(cardID: card.id)
-        }
-        let root = DetachedInsightCardView(card: card, onClose: closeAction)
-        window.contentView = NSHostingView(rootView: root)
-
-        windows[card.id] = window
-        onCloseHandlers[card.id] = onClose
+        windows[slot] = window
+        onCloseHandlers[slot] = onClose
+        apply(card: card, to: window, slotKey: slot)
 
         NotificationCenter.default.addObserver(
             self,
@@ -57,33 +59,58 @@ public final class DetachedCardWindowManager: NSObject {
         return true
     }
 
-    public func close(cardID: String) {
-        if let window = windows[cardID] {
+    public func updateIfDetached(card: InsightCard) {
+        let slot = slotKey(for: card)
+        guard let window = windows[slot] else { return }
+        apply(card: card, to: window, slotKey: slot)
+    }
+
+    public func close(slotKey: String) {
+        if let window = windows[slotKey] {
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
-            windows.removeValue(forKey: cardID)
+            windows.removeValue(forKey: slotKey)
             window.orderOut(nil)
             window.close()
         }
-        if let handler = onCloseHandlers.removeValue(forKey: cardID) {
+        if let handler = onCloseHandlers.removeValue(forKey: slotKey) {
             handler()
         }
     }
 
     public func closeAll() {
-        let ids = Array(windows.keys)
-        for id in ids {
-            close(cardID: id)
+        let keys = Array(windows.keys)
+        for key in keys {
+            close(slotKey: key)
         }
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         guard let pair = windows.first(where: { $0.value === window }) else { return }
-        let id = pair.key
-        windows.removeValue(forKey: id)
-        if let handler = onCloseHandlers.removeValue(forKey: id) {
+        let key = pair.key
+        windows.removeValue(forKey: key)
+        if let handler = onCloseHandlers.removeValue(forKey: key) {
             handler()
         }
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
+    }
+
+    private func apply(card: InsightCard, to window: NSWindow, slotKey: String) {
+        window.title = "Карточка — \(card.agentName ?? "Оркестратор")"
+        let closeAction: () -> Void = { [weak self] in
+            self?.close(slotKey: slotKey)
+        }
+        let root = DetachedInsightCardView(card: card, onClose: closeAction)
+            .environment(\.colorScheme, .light)
+            .preferredColorScheme(.light)
+        let hostingView = NSHostingView(rootView: root)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0).cgColor
+        window.contentView = hostingView
+    }
+
+    private func slotKey(for card: InsightCard) -> String {
+        let base = (card.agentName ?? "Оркестратор").lowercased()
+        return base.replacingOccurrences(of: " ", with: "_")
     }
 }

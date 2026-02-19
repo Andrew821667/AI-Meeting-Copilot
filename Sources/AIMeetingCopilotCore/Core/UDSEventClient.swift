@@ -25,10 +25,25 @@ private final class ResumeGate: @unchecked Sendable {
 }
 
 public final class UDSEventClient: @unchecked Sendable {
+    public struct CardReanalysisReply: Decodable, Sendable {
+        public let requestID: String
+        public let cardID: String
+        public let answer: String
+        public let timedOut: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case requestID = "request_id"
+            case cardID = "card_id"
+            case answer
+            case timedOut = "timed_out"
+        }
+    }
+
     public var onInsightCard: ((InsightCard) -> Void)?
     public var onSessionSummary: ((SessionSummary) -> Void)?
     public var onSessionAck: ((String) -> Void)?
     public var onRuntimeWarning: ((String) -> Void)?
+    public var onCardReanalysisReply: ((CardReanalysisReply) -> Void)?
     public var onError: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "ai.meeting.copilot.uds")
@@ -194,6 +209,19 @@ public final class UDSEventClient: @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak self] in
                 self?.onRuntimeWarning?(envelope.payload.message)
+            }
+
+        case "card_reanalysis_reply":
+            struct Envelope: Decodable {
+                let type: String
+                let payload: CardReanalysisReply
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("Ошибка декодирования ответа переанализа карточки")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onCardReanalysisReply?(envelope.payload)
             }
 
         default:

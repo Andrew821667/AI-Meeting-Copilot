@@ -45,6 +45,20 @@ class ExcludePhrase:
     phrase: str
 
 
+@dataclass
+class CardReanalyze:
+    request_id: str
+    session_id: str
+    profile: str
+    card_id: str
+    agent_name: str
+    trigger_reason: str
+    insight: str
+    reply_cautious: str
+    reply_confident: str
+    user_query: str
+
+
 def configure_logging() -> None:
     level_name = os.environ.get("AIMC_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -200,6 +214,13 @@ class SessionRuntime:
     def resume(self) -> None:
         self.orchestrator.set_paused(False)
 
+    def update_profile_overrides(self, profile_overrides: dict | None = None) -> tuple[bool, bool]:
+        was_force_mode = bool(self.profile.force_answer_mode)
+        self.profile = apply_overrides(self.profile, profile_overrides)
+        self.profile_settings = profile_runtime_settings(self.profile)
+        self.orchestrator.update_profile(self.profile)
+        return was_force_mode, bool(self.profile.force_answer_mode)
+
     def end(self) -> dict:
         self.active = False
         self.ended_at = time.time()
@@ -320,15 +341,22 @@ class BackendServer:
     async def _dispatch_message(self, msg_type: str, payload: dict) -> list[dict]:
         outbound = []
         if msg_type == "session_control":
-            outbound.extend(self._handle_session_control(payload))
+            outbound.extend(await self._handle_session_control(payload))
         elif msg_type == "mic_event":
-            cards = await self.runtime.orchestrator.on_mic_event(MicEvent(**payload))
+            event = MicEvent(**payload)
+            cards = await self.runtime.orchestrator.on_mic_event(event)
+            if self.runtime.profile.force_answer_mode:
+                direct_cards = await self.runtime.orchestrator.on_direct_force_answer_mic_event(event)
+                cards.extend(direct_cards)
             outbound.extend(self._wrap_cards(cards))
         elif msg_type == "transcript_segment":
             seg = TranscriptSegment(**payload)
             if seg.isFinal:
                 self.runtime.transcript.append(seg)
             cards = await self.runtime.orchestrator.on_transcript_segment(seg)
+            if self.runtime.profile.force_answer_mode:
+                direct_cards = await self.runtime.orchestrator.on_direct_force_answer_segment(seg)
+                cards.extend(direct_cards)
             outbound.extend(self._wrap_cards(cards))
         elif msg_type == "panic_capture":
             cards = await self.runtime.orchestrator.on_manual_capture()
@@ -341,6 +369,29 @@ class BackendServer:
             self.runtime.record_card_feedback(CardFeedback(**payload))
         elif msg_type == "exclude_phrase":
             self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
+        elif msg_type == "card_reanalyze":
+            req = CardReanalyze(**payload)
+            profile = req.profile or self.runtime.profile.id
+            answer, timed_out = await self.runtime.orchestrator.llm.reanalyze_card(
+                scenario=profile,
+                agent_name=req.agent_name,
+                trigger_reason=req.trigger_reason,
+                insight=req.insight,
+                reply_cautious=req.reply_cautious,
+                reply_confident=req.reply_confident,
+                user_query=req.user_query,
+            )
+            outbound.append(
+                {
+                    "type": "card_reanalysis_reply",
+                    "payload": {
+                        "request_id": req.request_id,
+                        "card_id": req.card_id,
+                        "answer": answer,
+                        "timed_out": timed_out,
+                    },
+                }
+            )
         else:
             outbound.append(build_runtime_error("unknown_event", f"Неизвестный тип события: {msg_type}"))
         return outbound
@@ -350,7 +401,7 @@ class BackendServer:
             writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
         await writer.drain()
 
-    def _handle_session_control(self, payload: dict) -> list[dict]:
+    async def _handle_session_control(self, payload: dict) -> list[dict]:
         event = payload.get("event")
         session_id = payload.get("session_id", "")
         profile = payload.get("profile", "negotiation")
@@ -358,7 +409,11 @@ class BackendServer:
 
         if event == "start":
             self.runtime.start(session_id=session_id, profile=profile, profile_overrides=profile_overrides)
-            return [{"type": "session_ack", "payload": {"event": "start", "session_id": session_id}}]
+            packets = [{"type": "session_ack", "payload": {"event": "start", "session_id": session_id}}]
+            if self.runtime.profile.force_answer_mode:
+                cards = await self.runtime.orchestrator.on_force_mode_activated()
+                packets.extend(self._wrap_cards(cards))
+            return packets
 
         if event == "pause":
             self.runtime.pause()
@@ -371,6 +426,16 @@ class BackendServer:
         if event == "end":
             summary = self.runtime.end()
             return [{"type": "session_summary", "payload": summary}]
+
+        if event == "profile_update":
+            was_force_mode, is_force_mode = self.runtime.update_profile_overrides(profile_overrides=profile_overrides)
+            packets = [{"type": "session_ack", "payload": {"event": "profile_update", "session_id": self.runtime.session_id}}]
+
+            force_just_enabled = (not was_force_mode) and is_force_mode and self.runtime.active
+            if force_just_enabled:
+                cards = await self.runtime.orchestrator.on_force_mode_activated()
+                packets.extend(self._wrap_cards(cards))
+            return packets
 
         return []
 

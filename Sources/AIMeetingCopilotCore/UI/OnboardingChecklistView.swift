@@ -96,7 +96,7 @@ public struct OnboardingChecklistView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(red: 0.97, green: 0.93, blue: 0.87))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onAppear {
             if viewModel.consentAccepted {

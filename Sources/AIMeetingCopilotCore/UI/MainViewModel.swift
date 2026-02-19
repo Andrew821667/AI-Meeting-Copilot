@@ -49,6 +49,7 @@ public final class MainViewModel: ObservableObject {
 
     @Published public private(set) var lastSessionSummary: SessionSummary?
     @Published public private(set) var sessionHistory: [SessionHistoryItem] = []
+    @Published public private(set) var latestSavedCards: [InsightCard] = []
     @Published public private(set) var excludedPhrases: [String] = []
     @Published public private(set) var runtimeWarningMessage: String?
     @Published public var errorMessage: String?
@@ -74,6 +75,7 @@ public final class MainViewModel: ObservableObject {
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
     private let historyStore = SessionHistoryStore()
+    private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
     private let calendarSuggester = CalendarProfileSuggester()
     private let detachedCardWindowManager = DetachedCardWindowManager()
@@ -90,6 +92,8 @@ public final class MainViewModel: ObservableObject {
     private var isApplyingCalendarSuggestion = false
     private var hasManualProfileSelection = false
     private var permissionBurstTask: Task<Void, Never>?
+    private let forceModeDefaultsKeyPrefix = "ai.meeting.copilot.force_mode."
+    private var cardReanalysisContinuations: [String: CheckedContinuation<String, Never>] = [:]
 
     public init(asrProvider: ASRProvider = WhisperKitProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
         self.asrProvider = asrProvider
@@ -97,7 +101,9 @@ public final class MainViewModel: ObservableObject {
 
         onboardingReady = false
         profileSettings = .defaults(for: selectedProfileID)
+        profileSettings.forceAnswerMode = loadPersistedForceMode(for: selectedProfileID)
         sessionHistory = historyStore.loadHistory()
+        latestSavedCards = savedCardStore.loadLatest(limit: 50)
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
         recomputeOnboardingReadiness()
 
@@ -147,6 +153,12 @@ public final class MainViewModel: ObservableObject {
             }
         }
 
+        udsClient.onCardReanalysisReply = { [weak self] reply in
+            DispatchQueue.main.async { [weak self] in
+                self?.handleCardReanalysisReply(reply)
+            }
+        }
+
         udsClient.onError = { [weak self] message in
             DispatchQueue.main.async {
                 self?.errorMessage = message
@@ -171,6 +183,7 @@ public final class MainViewModel: ObservableObject {
                     self.hasManualProfileSelection = true
                 }
                 self.profileSettings = .defaults(for: profileID)
+                self.profileSettings.forceAnswerMode = self.loadPersistedForceMode(for: profileID)
                 self.reloadExcludedPhrases()
             }
             .store(in: &cancellables)
@@ -254,6 +267,32 @@ private struct ExcludePhrasePayload: Codable, Sendable {
     }
 }
 
+private struct CardReanalysisPayload: Codable, Sendable {
+    let requestID: String
+    let sessionID: String
+    let profile: String
+    let cardID: String
+    let agentName: String
+    let triggerReason: String
+    let insight: String
+    let replyCautious: String
+    let replyConfident: String
+    let userQuery: String
+
+    enum CodingKeys: String, CodingKey {
+        case requestID = "request_id"
+        case sessionID = "session_id"
+        case profile
+        case cardID = "card_id"
+        case agentName = "agent_name"
+        case triggerReason = "trigger_reason"
+        case insight
+        case replyCautious = "reply_cautious"
+        case replyConfident = "reply_confident"
+        case userQuery = "user_query"
+    }
+}
+
 public extension MainViewModel {
     var microphonePermissionGranted: Bool {
         permissionsManager.checklist.microphonePermissionGranted
@@ -333,6 +372,8 @@ public extension MainViewModel {
 
     func toggleForceAnswerMode() {
         profileSettings.forceAnswerMode.toggle()
+        persistForceMode(profileSettings.forceAnswerMode, for: selectedProfileID)
+        sendProfileOverridesUpdateIfNeeded()
     }
 
     func refreshPermissions() {
@@ -395,6 +436,14 @@ public extension MainViewModel {
         sessionHistory = historyStore.loadHistory()
     }
 
+    func reloadLatestSavedCards() {
+        latestSavedCards = savedCardStore.loadLatest(limit: 50)
+    }
+
+    func loadSessionCards(item: SessionHistoryItem) -> [InsightCard] {
+        savedCardStore.loadBySessionOrImport(sessionID: item.id, exportPath: item.exportPath)
+    }
+
     func reloadExcludedPhrases() {
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
     }
@@ -419,6 +468,7 @@ public extension MainViewModel {
 
     func resetProfileSettingsToDefaults() {
         profileSettings = .defaults(for: selectedProfileID)
+        profileSettings.forceAnswerMode = loadPersistedForceMode(for: selectedProfileID)
     }
 
     func refreshCalendarSuggestion(autoApply: Bool = false) {
@@ -676,6 +726,29 @@ public extension MainViewModel {
         }
     }
 
+    func sendProfileOverridesUpdateIfNeeded() {
+        guard let currentSessionID else { return }
+        guard sessionState == .capturing || sessionState == .paused else { return }
+
+        Task {
+            do {
+                try await udsClient.send(
+                    type: "session_control",
+                    payload: SessionControlPayload(
+                        event: "profile_update",
+                        sessionID: currentSessionID.uuidString,
+                        profile: selectedProfileID,
+                        profileOverrides: profileSettings
+                    )
+                )
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Не удалось обновить режим ответов: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     func markActiveCardUseful() {
         guard let id = activeCard?.id else { return }
         markCardUseful(cardID: id)
@@ -739,8 +812,73 @@ public extension MainViewModel {
     }
 
     func detachCard(cardID: String) {
-        guard let idx = activeCards.firstIndex(where: { $0.id == cardID }) else { return }
-        let card = activeCards[idx]
+        guard let card = activeCards.first(where: { $0.id == cardID }) else { return }
+        performDetach(for: card)
+    }
+
+    func detachRecentCard(cardID: String) {
+        guard let card = recentCards.first(where: { $0.id == cardID }) else { return }
+        performDetach(for: card)
+    }
+
+    func saveCardToDatabase(_ card: InsightCard) {
+        let sessionID = currentSessionID?.uuidString ?? "manual-\(selectedProfileID)"
+        let profileID = card.scenario.isEmpty ? selectedProfileID : card.scenario
+        savedCardStore.upsert(card: card, sessionID: sessionID, profileID: profileID)
+        reloadLatestSavedCards()
+    }
+
+    func requestCardReanalysis(card: InsightCard, userQuery: String) async -> String {
+        let trimmed = userQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Введите вопрос для переанализа."
+        }
+
+        let sessionID = currentSessionID?.uuidString ?? "manual-\(selectedProfileID)"
+        let requestID = UUID().uuidString
+
+        return await withCheckedContinuation { continuation in
+            cardReanalysisContinuations[requestID] = continuation
+
+            Task {
+                do {
+                    try await udsClient.send(
+                        type: "card_reanalyze",
+                        payload: CardReanalysisPayload(
+                            requestID: requestID,
+                            sessionID: sessionID,
+                            profile: selectedProfileID,
+                            cardID: card.id,
+                            agentName: card.agentName ?? "Оркестратор",
+                            triggerReason: card.triggerReason,
+                            insight: card.insight,
+                            replyCautious: card.replyCautious,
+                            replyConfident: card.replyConfident,
+                            userQuery: trimmed
+                        )
+                    )
+                } catch {
+                    await MainActor.run {
+                        if let pending = self.cardReanalysisContinuations.removeValue(forKey: requestID) {
+                            pending.resume(returning: "Ошибка запроса к LLM: \(error.localizedDescription)")
+                        }
+                    }
+                }
+            }
+
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 7_000_000_000)
+                guard let self else { return }
+                if let pending = self.cardReanalysisContinuations.removeValue(forKey: requestID) {
+                    pending.resume(returning: "LLM не ответил вовремя. Повторите запрос.")
+                }
+            }
+        }
+    }
+}
+
+private extension MainViewModel {
+    func performDetach(for card: InsightCard) {
         let detached = detachedCardWindowManager.detach(card: card) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.replaceRecent(card)
@@ -751,13 +889,9 @@ public extension MainViewModel {
             return
         }
 
-        activeCards.remove(at: idx)
-        syncActiveCard()
         replaceRecent(card)
     }
-}
 
-private extension MainViewModel {
     func makeASRProvider(optionID: String, captureMode: CaptureSourceMode) -> ASRProvider {
         if optionID == ASRProviderOption.whisperKit.id && captureMode == .meeting {
             return SystemSpeechASRProvider()
@@ -817,6 +951,7 @@ private extension MainViewModel {
         isApplyingCalendarSuggestion = true
         selectedProfileID = suggested
         profileSettings = .defaults(for: suggested)
+        profileSettings.forceAnswerMode = loadPersistedForceMode(for: suggested)
         isApplyingCalendarSuggestion = false
 
         let profileTitle = ProfileOption.title(for: suggested)
@@ -1005,24 +1140,45 @@ private extension MainViewModel {
     }
 
     func handleIncomingCard(_ card: InsightCard) {
-        if let idx = activeCards.firstIndex(where: { $0.id == card.id }) {
-            activeCards[idx] = card
+        let incomingSlot = cardSlotKey(card)
+        var mergedCard = card
+        if let idx = activeCards.firstIndex(where: { cardSlotKey($0) == incomingSlot }) {
+            let existing = activeCards[idx]
+            mergedCard.pinned = existing.pinned
+            mergedCard.dismissed = existing.dismissed
+            mergedCard.excluded = existing.excluded
+            activeCards[idx] = mergedCard
         } else {
-            activeCards.insert(card, at: 0)
-            if activeCards.count > 3 {
-                activeCards = Array(activeCards.prefix(3))
-            }
+            activeCards.append(mergedCard)
         }
+
+        activeCards.sort { lhs, rhs in
+            let lhsPriority = cardPriority(lhs)
+            let rhsPriority = cardPriority(rhs)
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+            return lhs.timestamp > rhs.timestamp
+        }
+        if activeCards.count > 3 {
+            activeCards = Array(activeCards.prefix(3))
+        }
+
+        detachedCardWindowManager.updateIfDetached(card: mergedCard)
         syncActiveCard()
         isCardCollapsed = false
 
-        recentCards.insert(card, at: 0)
-        if recentCards.count > 3 {
-            recentCards = Array(recentCards.prefix(3))
-        }
+        replaceRecent(mergedCard)
+        let sessionID = currentSessionID?.uuidString ?? "manual-\(selectedProfileID)"
+        let profileID = mergedCard.scenario.isEmpty ? selectedProfileID : mergedCard.scenario
+        savedCardStore.upsert(card: mergedCard, sessionID: sessionID, profileID: profileID)
     }
 
     func syncActiveCard() {
+        if let orchestrator = activeCards.first(where: { cardPriority($0) == 0 }) {
+            activeCard = orchestrator
+            return
+        }
         activeCard = activeCards.first
     }
 
@@ -1041,8 +1197,40 @@ private extension MainViewModel {
     }
 
     func replaceRecent(_ card: InsightCard) {
-        if let idx = recentCards.firstIndex(where: { $0.id == card.id }) {
+        let slot = cardSlotKey(card)
+        if let idx = recentCards.firstIndex(where: { cardSlotKey($0) == slot }) {
             recentCards[idx] = card
+            return
+        }
+        recentCards.insert(card, at: 0)
+        if recentCards.count > 3 {
+            recentCards = Array(recentCards.prefix(3))
+        }
+    }
+
+    func handleCardReanalysisReply(_ reply: UDSEventClient.CardReanalysisReply) {
+        guard let continuation = cardReanalysisContinuations.removeValue(forKey: reply.requestID) else {
+            return
+        }
+        continuation.resume(returning: reply.answer)
+    }
+
+    func cardSlotKey(_ card: InsightCard) -> String {
+        (card.agentName ?? "Оркестратор")
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+    }
+
+    func cardPriority(_ card: InsightCard) -> Int {
+        switch (card.agentName ?? "Оркестратор").lowercased() {
+        case "оркестратор":
+            return 0
+        case "психолог":
+            return 1
+        case "принудительный ответ":
+            return 2
+        default:
+            return 9
         }
     }
 
@@ -1058,5 +1246,18 @@ private extension MainViewModel {
 
     func currentBatteryLevel() -> Float {
         return 1.0
+    }
+
+    func persistForceMode(_ enabled: Bool, for profileID: String) {
+        let key = forceModeDefaultsKeyPrefix + profileID
+        UserDefaults.standard.set(enabled, forKey: key)
+    }
+
+    func loadPersistedForceMode(for profileID: String) -> Bool {
+        let key = forceModeDefaultsKeyPrefix + profileID
+        if UserDefaults.standard.object(forKey: key) == nil {
+            return false
+        }
+        return UserDefaults.standard.bool(forKey: key)
     }
 }

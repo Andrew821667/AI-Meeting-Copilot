@@ -4,41 +4,40 @@ public struct ContentView: View {
     @ObservedObject private var viewModel: MainViewModel
     @State private var showProfileEditor = false
     @State private var showExcludeEditor = false
+    @State private var showLast50Cards = false
+    @State private var showSessionCards = false
     @State private var excludeDraft = ""
+    @State private var selectedCardForDetails: InsightCard?
+    @State private var selectedSessionTitle: String = ""
+    @State private var selectedSessionCards: [InsightCard] = []
+
+    private let panelFill = Color(red: 0.98, green: 0.95, blue: 0.89)
+    private let panelBorder = Color(red: 0.76, green: 0.67, blue: 0.53)
 
     public init(viewModel: MainViewModel = MainViewModel()) {
         self.viewModel = viewModel
     }
 
     public var body: some View {
-        HSplitView {
-            VSplitView {
-                ScrollView {
-                    mainTopContent
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .frame(minHeight: 300, idealHeight: 430)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.97, green: 0.94, blue: 0.88),
+                    Color(red: 0.94, green: 0.89, blue: 0.80)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-                liveTranscript
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
-                    .frame(minHeight: 220)
+            HSplitView {
+                leftPane
+                rightPane
             }
-            .frame(minWidth: 560)
-
-            VSplitView {
-                sidebarCards
-                    .padding(16)
-                    .frame(minHeight: 260)
-
-                sidebarHistory
-                    .padding(16)
-                    .frame(minHeight: 220)
-            }
-            .frame(minWidth: 260)
+            .padding(10)
         }
-        .frame(minWidth: 900, minHeight: 680)
+        .frame(minWidth: 420, minHeight: 300)
+        .preferredColorScheme(.light)
         .sheet(isPresented: $showProfileEditor) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Параметры профиля")
@@ -99,9 +98,127 @@ public struct ContentView: View {
         }
         .onAppear {
             viewModel.reloadSessionHistory()
+            viewModel.reloadLatestSavedCards()
             viewModel.refreshCalendarSuggestion(autoApply: true)
             viewModel.reloadExcludedPhrases()
         }
+        .sheet(item: $selectedCardForDetails) { card in
+            CardDetailSheetView(
+                card: card,
+                onSave: {
+                    viewModel.saveCardToDatabase(card)
+                },
+                onRequestReanalysis: { prompt in
+                    await viewModel.requestCardReanalysis(card: card, userQuery: prompt)
+                }
+            )
+        }
+        .sheet(isPresented: $showLast50Cards) {
+            NavigationStack {
+                List(viewModel.latestSavedCards) { card in
+                    Button {
+                        selectedCardForDetails = card
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(card.agentName ?? "Оркестратор")
+                                .font(.subheadline.weight(.semibold))
+                            Text(card.insight)
+                                .font(.subheadline)
+                                .lineLimit(2)
+                            Text(card.triggerReason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .navigationTitle("Последние 50 карточек")
+            }
+            .frame(minWidth: 760, minHeight: 560)
+            .onAppear {
+                viewModel.reloadLatestSavedCards()
+            }
+        }
+        .sheet(isPresented: $showSessionCards) {
+            NavigationStack {
+                List(selectedSessionCards) { card in
+                    Button {
+                        selectedCardForDetails = card
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(card.agentName ?? "Оркестратор")
+                                .font(.subheadline.weight(.semibold))
+                            Text(card.insight)
+                                .font(.subheadline)
+                                .lineLimit(2)
+                            Text(card.triggerReason)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .navigationTitle(selectedSessionTitle)
+            }
+            .frame(minWidth: 760, minHeight: 560)
+        }
+    }
+
+    private var leftPane: some View {
+        VSplitView {
+            splitPanel(minHeight: 60, idealHeight: 430) {
+                ScrollView {
+                    mainTopContent
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            }
+
+            splitPanel(minHeight: 50, idealHeight: 260) {
+                liveTranscript
+                    .padding(10)
+            }
+        }
+        .frame(minWidth: 90, idealWidth: 760, maxWidth: .infinity)
+        .layoutPriority(2)
+    }
+
+    private var rightPane: some View {
+        VSplitView {
+            splitPanel(minHeight: 36, idealHeight: 330) {
+                activeCardsPane
+            }
+
+            splitPanel(minHeight: 36, idealHeight: 180) {
+                recentCardsPane
+            }
+
+            splitPanel(minHeight: 36, idealHeight: 240) {
+                sidebarHistory
+            }
+        }
+        .frame(minWidth: 90, idealWidth: 430, maxWidth: .infinity)
+        .layoutPriority(1)
+    }
+
+    private func splitPanel<Content: View>(
+        minHeight: CGFloat,
+        idealHeight: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .padding(10)
+            .frame(minHeight: minHeight, idealHeight: idealHeight, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(panelFill.opacity(0.97))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(panelBorder.opacity(0.82), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var mainTopContent: some View {
@@ -113,6 +230,11 @@ public struct ContentView: View {
             }
 
             controls
+            Text(viewModel.profileSettings.forceAnswerMode
+                 ? "Режим принудительных ответов активен: работают 2 потока (оркестратор + прямой LLM в карточку «Принудительный ответ»)."
+                 : "Режим принудительных ответов выключен.")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(viewModel.profileSettings.forceAnswerMode ? Color(red: 0.33, green: 0.20, blue: 0.13) : .secondary)
             Text(viewModel.startGuideText)
                 .font(.footnote)
                 .foregroundStyle(viewModel.onboardingReady ? (viewModel.screenPermissionMissingForMeetingMode ? .orange : .green) : .orange)
@@ -175,7 +297,7 @@ public struct ContentView: View {
                     Text(profile.title).tag(profile.id)
                 }
             }
-            .frame(minWidth: 220, idealWidth: 280, maxWidth: 320)
+            .frame(maxWidth: 280)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Picker("ASR", selection: $viewModel.selectedASRProviderID) {
@@ -183,7 +305,7 @@ public struct ContentView: View {
                     Text(provider.title).tag(provider.id)
                 }
             }
-            .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
+            .frame(maxWidth: 260)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Picker("Режим", selection: $viewModel.selectedCaptureSourceMode) {
@@ -191,7 +313,7 @@ public struct ContentView: View {
                     Text(mode.title).tag(mode)
                 }
             }
-            .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
+            .frame(maxWidth: 320)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
         }
     }
@@ -213,37 +335,53 @@ public struct ContentView: View {
 
     private var sessionActionsRow: some View {
         HStack(spacing: 8) {
-                Button(viewModel.startButtonTitle) {
-                    viewModel.startCapture()
-                }
-                .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+            Button(viewModel.startButtonTitle) {
+                viewModel.startCapture()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(red: 0.44, green: 0.56, blue: 0.31))
+            .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Button("Пауза") {
                 viewModel.pauseCapture()
             }
+            .buttonStyle(.bordered)
             .disabled(viewModel.sessionState != .capturing)
 
             Button("Продолжить") {
                 viewModel.resumeCapture()
             }
+            .buttonStyle(.bordered)
             .disabled(viewModel.sessionState != .paused)
 
             Button("Остановить") {
                 viewModel.stopCapture()
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(red: 0.63, green: 0.32, blue: 0.26))
             .disabled(viewModel.sessionState != .capturing && viewModel.sessionState != .paused)
 
             Button("Запиши это!") {
                 viewModel.triggerPanicCapture()
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(Color(red: 0.70, green: 0.48, blue: 0.24))
             .keyboardShortcut(.space, modifiers: [.command, .shift])
             .disabled(viewModel.sessionState != .capturing)
 
-            Button(viewModel.answerModeButtonTitle) {
+            Button(viewModel.profileSettings.forceAnswerMode
+                   ? "Принудительные ответы: ВКЛ"
+                   : "Принудительные ответы: ВЫКЛ") {
                 viewModel.toggleForceAnswerMode()
             }
-            .tint(viewModel.profileSettings.forceAnswerMode ? .green : .secondary)
-            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(viewModel.profileSettings.forceAnswerMode
+                  ? Color(red: 0.40, green: 0.31, blue: 0.23)
+                  : Color(red: 0.58, green: 0.53, blue: 0.46))
         }
     }
 
@@ -254,8 +392,7 @@ public struct ContentView: View {
             Text(viewModel.isUserSpeaking ? "Статус микрофона: говорю" : "Статус микрофона: молчу")
         }
         .font(.caption.monospaced())
-        .lineLimit(1)
-        .frame(minWidth: 220, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var liveTranscript: some View {
@@ -275,7 +412,11 @@ public struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(8)
-                        .background(segment.isFinal ? Color.green.opacity(0.12) : Color.gray.opacity(0.12))
+                        .background(
+                            segment.isFinal
+                                ? Color(red: 0.90, green: 0.95, blue: 0.87)
+                                : Color(red: 0.94, green: 0.90, blue: 0.84)
+                        )
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }
@@ -303,8 +444,8 @@ public struct ContentView: View {
         }
     }
 
-    private var sidebarCards: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var activeCardsPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Карточки")
                 .font(.title3.weight(.semibold))
 
@@ -312,6 +453,7 @@ public struct ContentView: View {
                 Text("Активных карточек нет")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
@@ -321,29 +463,54 @@ public struct ContentView: View {
                                 collapsed: viewModel.isCardCollapsed,
                                 onPin: { viewModel.togglePin(cardID: card.id) },
                                 onCopy: { viewModel.copyReply(cardID: card.id) },
-                                onUseful: { viewModel.markCardUseful(cardID: card.id) },
-                                onUseless: { viewModel.markCardUseless(cardID: card.id) },
-                                onExclude: { viewModel.excludeCardPattern(cardID: card.id) },
                                 onDetach: { viewModel.detachCard(cardID: card.id) },
                                 onClose: { viewModel.dismissCard(cardID: card.id) }
                             )
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+    }
+
+    private var recentCardsPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Последние карточки")
+                    .font(.headline)
+                Spacer()
+                Button("Последние 50") {
+                    viewModel.reloadLatestSavedCards()
+                    showLast50Cards = true
+                }
+                .buttonStyle(.bordered)
             }
 
-            Divider()
-
-            Text("Последние 3 карточки")
-                .font(.headline)
+            if viewModel.recentCards.isEmpty {
+                Text("Пока нет карточек.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(viewModel.recentCards) { card in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(card.agentName ?? "Оркестратор")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
+                            HStack {
+                                Text(card.agentName ?? "Оркестратор")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Вынести") {
+                                    viewModel.detachRecentCard(cardID: card.id)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
                             Text(card.insight)
                                 .font(.subheadline)
                                 .lineLimit(2)
@@ -353,8 +520,12 @@ public struct ContentView: View {
                         }
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.secondary.opacity(0.08))
+                        .background(Color(red: 0.95, green: 0.91, blue: 0.85))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .onTapGesture {
+                            selectedCardForDetails = card
+                        }
                     }
                 }
             }
@@ -373,24 +544,37 @@ public struct ContentView: View {
                 .font(.caption)
             }
 
+            if viewModel.sessionHistory.isEmpty {
+                Text("Сессии пока не сохранены.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(viewModel.sessionHistory.prefix(10)) { item in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(ProfileOption.title(for: item.profileID))
-                                .font(.subheadline.weight(.semibold))
-                            Text("\(formattedDate(item.endedAt)) • карточек: \(item.totalCards), резервных: \(item.fallbackCards)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(item.exportPath)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .textSelection(.enabled)
+                    ForEach(viewModel.sessionHistory.prefix(3)) { item in
+                        Button {
+                            selectedSessionCards = viewModel.loadSessionCards(item: item)
+                            selectedSessionTitle = "Сессия \(formattedDate(item.endedAt))"
+                            showSessionCards = true
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(ProfileOption.title(for: item.profileID))
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(formattedDate(item.endedAt)) • карточек: \(item.totalCards), резервных: \(item.fallbackCards)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(item.exportPath)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                            }
                         }
+                        .buttonStyle(.plain)
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.secondary.opacity(0.08))
+                        .background(Color(red: 0.95, green: 0.91, blue: 0.85))
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }

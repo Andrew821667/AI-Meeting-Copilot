@@ -5,7 +5,7 @@ public final class SessionHistoryStore {
     public init() {}
 
     public func loadHistory() -> [SessionHistoryItem] {
-        let exportsDir = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
+        let exportsDir = resolveExportsDirectory()
         let sqlitePath = (exportsDir as NSString).appendingPathComponent("sessions.sqlite3")
 
         if FileManager.default.fileExists(atPath: sqlitePath), let fromSQLite = loadHistoryFromSQLite(sqlitePath) {
@@ -102,5 +102,13 @@ public final class SessionHistoryStore {
             return nil
         }
         return String(cString: cString)
+    }
+
+    private func resolveExportsDirectory() -> String {
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
+            return root.appendingPathComponent("exports", isDirectory: true).path
+        }
+        return (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
     }
 }

@@ -6,47 +6,26 @@ struct DetachedInsightCardView: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(card.agentName ?? "Оркестратор")
-                    .font(.headline)
-                Spacer()
-                Text(localizedSeverity(card.severity))
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(card.triggerReason)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(card.insight)
-                .font(.body.weight(.medium))
-            Text("Осторожный: \(card.replyCautious)")
-                .font(.subheadline)
-            Text("Уверенный: \(card.replyConfident)")
-                .font(.subheadline)
-
-            HStack {
-                Button("Копировать ответ") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(card.replyConfident, forType: .string)
-                }
-                Spacer()
-                Button("Закрыть") {
-                    onClose()
-                }
-            }
-        }
-        .padding(14)
-        .frame(minWidth: 420, minHeight: 260, alignment: .topLeading)
-    }
-
-    private func localizedSeverity(_ severity: String) -> String {
-        switch severity.lowercased() {
-        case "info": return "ИНФО"
-        case "warning": return "ВНИМАНИЕ"
-        case "alert": return "КРИТИЧНО"
-        default: return severity.uppercased()
+        InsightCardView(
+            card: card,
+            collapsed: false,
+            onPin: {},
+            onCopy: {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(card.replyConfident, forType: .string)
+            },
+            onDetach: {},
+            onClose: onClose
+        )
+        .padding(12)
+        .frame(minWidth: 460, minHeight: 300, alignment: .topLeading)
+        .background(
+            Color(red: 0.97, green: 0.94, blue: 0.88)
+                .ignoresSafeArea()
+        )
+        .preferredColorScheme(.light)
+        .onAppear {
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 }

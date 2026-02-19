@@ -223,6 +223,82 @@ class RealtimeLLMClient:
             agent_name=agent_name,
         )
 
+    async def reanalyze_card(
+        self,
+        *,
+        scenario: str,
+        agent_name: str,
+        trigger_reason: str,
+        insight: str,
+        reply_cautious: str,
+        reply_confident: str,
+        user_query: str,
+    ) -> tuple[str, bool]:
+        started = time.perf_counter()
+        try:
+            answer = await asyncio.wait_for(
+                self._generate_reanalysis_answer(
+                    scenario=scenario,
+                    agent_name=agent_name,
+                    trigger_reason=trigger_reason,
+                    insight=insight,
+                    reply_cautious=reply_cautious,
+                    reply_confident=reply_confident,
+                    user_query=user_query,
+                ),
+                timeout=self.timeout_sec,
+            )
+            if not answer.strip():
+                answer = self._fallback_reanalysis_answer(agent_name=agent_name, user_query=user_query)
+            _ = started
+            return answer, False
+        except asyncio.TimeoutError:
+            answer = self._fallback_reanalysis_answer(agent_name=agent_name, user_query=user_query)
+            return answer, True
+        except Exception:
+            answer = self._fallback_reanalysis_answer(agent_name=agent_name, user_query=user_query)
+            return answer, False
+
+    async def _generate_reanalysis_answer(
+        self,
+        *,
+        scenario: str,
+        agent_name: str,
+        trigger_reason: str,
+        insight: str,
+        reply_cautious: str,
+        reply_confident: str,
+        user_query: str,
+    ) -> str:
+        if self.transport is None:
+            await asyncio.sleep(0.2)
+            return self._fallback_reanalysis_answer(agent_name=agent_name, user_query=user_query)
+
+        prompt = (
+            f"Сценарий: {scenario}\n"
+            f"Агент: {agent_name}\n"
+            f"Причина карточки: {trigger_reason}\n"
+            f"Инсайт карточки: {insight}\n"
+            f"Осторожный ответ: {reply_cautious}\n"
+            f"Уверенный ответ: {reply_confident}\n\n"
+            f"Вопрос пользователя: {user_query}\n\n"
+            "Ответь кратко и практично. Формат JSON: {\"answer\": \"...\"}"
+        )
+        payload = await self.transport.generate(prompt=prompt, timeout_sec=self.timeout_sec)
+        answer = (
+            str(payload.get("answer") or "").strip()
+            or str(payload.get("reply_confident") or "").strip()
+            or str(payload.get("insight") or "").strip()
+        )
+        return answer
+
+    def _fallback_reanalysis_answer(self, *, agent_name: str, user_query: str) -> str:
+        agent = (agent_name or "Оркестратор").strip()
+        return (
+            f"[{agent}] Уточнение: {user_query.strip()}. "
+            "Рекомендация: ответьте коротко по сути, затем закрепите договоренность письменно."
+        )
+
     def _heuristic_card(
         self,
         scenario: str,
@@ -233,15 +309,37 @@ class RealtimeLLMClient:
         agent_name: str,
     ) -> InsightCard:
         brief = context.strip().splitlines()[-1] if context.strip() else "Контекст ограничен"
+        agent = agent_name.lower()
+        if "психолог" in agent:
+            insight = f"Психология: собеседник усиливает давление через формулировку «{brief[:96]}»."
+            reply_cautious = "Сохрани спокойный тон и уточни критерии, чтобы снять давление."
+            reply_confident = "Переведи разговор в факты: критерии, срок, ответственный."
+            severity = "info"
+        elif "оркестратор" in agent:
+            insight = f"Главная подсказка: {brief[:110]}"
+            reply_cautious = "Сформулируй ответ мягко и уточни ожидания."
+            reply_confident = "Ответь по сути и зафиксируй следующий шаг."
+            severity = "warning"
+        elif "принуд" in agent or "ответ" in agent:
+            insight = f"Короткий ответ по сути: {brief[:110]}"
+            reply_cautious = "Отвечу кратко и задам уточняющий вопрос по ожиданиям."
+            reply_confident = "Прямой ответ: обозначаю срок и фиксирую следующий шаг."
+            severity = "warning"
+        else:
+            insight = f"Зафиксируй риск: {brief[:120]}"
+            reply_cautious = "Уточним формулировку и закрепим письменно."
+            reply_confident = "Предлагаю зафиксировать это в протоколе встречи прямо сейчас."
+            severity = "warning"
+
         return InsightCard(
             id=str(uuid.uuid4()),
             scenario=scenario,
             card_mode="reply_suggestions",
             trigger_reason=trigger_reason,
-            insight=f"Зафиксируй риск: {brief[:120]}",
-            reply_cautious="Уточним формулировку и закрепим письменно.",
-            reply_confident="Предлагаю зафиксировать это в протоколе встречи прямо сейчас.",
-            severity="warning",
+            insight=insight,
+            reply_cautious=reply_cautious,
+            reply_confident=reply_confident,
+            severity=severity,
             timestamp=asyncio.get_running_loop().time(),
             speaker=speaker,
             agent_name=agent_name,
