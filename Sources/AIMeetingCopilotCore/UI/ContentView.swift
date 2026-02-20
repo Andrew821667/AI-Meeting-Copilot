@@ -334,6 +334,16 @@ public struct ContentView: View {
             }
             .frame(maxWidth: 320)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            if viewModel.selectedCaptureSourceMode == .meeting {
+                Picker("Встреча", selection: $viewModel.selectedMeetingSubMode) {
+                    ForEach(MeetingSubMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .frame(maxWidth: 160)
+                .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+            }
         }
     }
 
@@ -421,8 +431,8 @@ public struct ContentView: View {
                     ForEach(viewModel.transcript) { segment in
                         VStack(alignment: .leading, spacing: 2) {
                             Text("[\(segment.isFinal ? "ФИНАЛ" : "ЧАСТЬ")] \(localizedSpeaker(segment.speaker))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(speakerColor(segment.speaker))
                             Text(segment.text)
                                 .font(.body)
                             Text(String(format: "%.2f - %.2f", segment.tsStart, segment.tsEnd))
@@ -632,8 +642,23 @@ public struct ContentView: View {
         case "THEM": return "Собеседник"
         case "THEM_A": return "Собеседник A"
         case "THEM_B": return "Собеседник B"
+        case "THEM_C": return "Собеседник C"
+        case "THEM_D": return "Собеседник D"
+        case "THEM_E": return "Собеседник E"
         case "ME": return "Я"
         default: return speaker
+        }
+    }
+
+    private func speakerColor(_ speaker: String) -> Color {
+        switch speaker {
+        case "ME": return Color(red: 0.25, green: 0.50, blue: 0.30)
+        case "THEM", "THEM_A": return Color(red: 0.30, green: 0.40, blue: 0.65)
+        case "THEM_B": return Color(red: 0.60, green: 0.35, blue: 0.50)
+        case "THEM_C": return Color(red: 0.55, green: 0.45, blue: 0.25)
+        case "THEM_D": return Color(red: 0.35, green: 0.55, blue: 0.55)
+        case "THEM_E": return Color(red: 0.50, green: 0.30, blue: 0.60)
+        default: return .secondary
         }
     }
 
