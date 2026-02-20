@@ -25,6 +25,18 @@ private final class ResumeGate: @unchecked Sendable {
 }
 
 public final class UDSEventClient: @unchecked Sendable {
+    public struct SpeakerLabelReply: Decodable, Sendable {
+        public let chunkIndex: Int
+        public let label: String
+        public let speakerCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case chunkIndex = "chunk_index"
+            case label
+            case speakerCount = "speaker_count"
+        }
+    }
+
     public struct CardReanalysisReply: Decodable, Sendable {
         public let requestID: String
         public let cardID: String
@@ -44,6 +56,7 @@ public final class UDSEventClient: @unchecked Sendable {
     public var onSessionAck: ((String) -> Void)?
     public var onRuntimeWarning: ((String) -> Void)?
     public var onCardReanalysisReply: ((CardReanalysisReply) -> Void)?
+    public var onSpeakerLabel: ((SpeakerLabelReply) -> Void)?
     public var onError: ((String) -> Void)?
 
     private let queue = DispatchQueue(label: "ai.meeting.copilot.uds")
@@ -222,6 +235,19 @@ public final class UDSEventClient: @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak self] in
                 self?.onCardReanalysisReply?(envelope.payload)
+            }
+
+        case "speaker_label":
+            struct Envelope: Decodable {
+                let type: String
+                let payload: SpeakerLabelReply
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("Ошибка декодирования метки спикера")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onSpeakerLabel?(envelope.payload)
             }
 
         default:

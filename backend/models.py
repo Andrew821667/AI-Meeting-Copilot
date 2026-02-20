@@ -45,6 +45,16 @@ class AudioLevelEvent:
 
 
 @dataclass
+class SystemAudioChunk:
+    """Base64-encoded PCM float32 chunk from system audio (16 kHz mono)."""
+    session_id: str
+    chunk_index: int
+    sample_rate: int
+    channels: int
+    pcm_base64: str
+
+
+@dataclass
 class RawBufferEntry:
     speaker: str
     text: str

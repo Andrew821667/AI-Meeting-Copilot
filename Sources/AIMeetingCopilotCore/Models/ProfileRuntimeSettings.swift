@@ -9,6 +9,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var forceAnswerMode: Bool
     public var micAudioPath: String?
     public var systemAudioPath: String?
+    public var meetingSubMode: String?
 
     public init(
         threshold: Double,
@@ -18,7 +19,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         minContextMin: Int,
         forceAnswerMode: Bool = false,
         micAudioPath: String? = nil,
-        systemAudioPath: String? = nil
+        systemAudioPath: String? = nil,
+        meetingSubMode: String? = nil
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -28,6 +30,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.forceAnswerMode = forceAnswerMode
         self.micAudioPath = micAudioPath
         self.systemAudioPath = systemAudioPath
+        self.meetingSubMode = meetingSubMode
     }
 
     enum CodingKeys: String, CodingKey {
@@ -39,6 +42,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case forceAnswerMode = "force_answer_mode"
         case micAudioPath = "mic_audio_path"
         case systemAudioPath = "system_audio_path"
+        case meetingSubMode = "meeting_sub_mode"
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

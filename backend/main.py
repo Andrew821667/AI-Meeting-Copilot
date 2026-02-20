@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+
 from feedback_store import FeedbackStore
-from models import AudioLevelEvent, MicEvent, SystemStateEvent, TranscriptSegment
+from models import AudioLevelEvent, MicEvent, SystemAudioChunk, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from pdf_export import export_report_pdf
 from postfactum import build_markdown_report
@@ -155,6 +156,8 @@ class SessionRuntime:
         self.started_at = 0.0
         self.ended_at = 0.0
         self.active = False
+        self.meeting_sub_mode = "one_on_one"  # "one_on_one" | "group"
+        self.diarizer = None  # OnlineSpeakerDiarizer, created on demand
 
         self.transcript: list[TranscriptSegment] = []
         self.cards = []
@@ -171,6 +174,20 @@ class SessionRuntime:
         self.orchestrator = TriggerOrchestrator(self.profile, telemetry=self.telemetry)
         self.orchestrator.set_paused(False)
         self.orchestrator.set_excluded_phrases(self.feedback_store.load_excluded_phrases(profile_id=self.profile.id))
+
+        # Determine meeting sub-mode from overrides
+        self.meeting_sub_mode = (profile_overrides or {}).get("meeting_sub_mode", "one_on_one")
+        if self.meeting_sub_mode == "group":
+            try:
+                from speaker_diarizer import OnlineSpeakerDiarizer
+                self.diarizer = OnlineSpeakerDiarizer()
+                logger.info("Online speaker diarizer initialized for group mode")
+            except Exception:
+                logger.exception("Failed to initialize speaker diarizer, falling back to one_on_one")
+                self.diarizer = None
+                self.meeting_sub_mode = "one_on_one"
+        else:
+            self.diarizer = None
 
         self.transcript = []
         self.cards = []
@@ -390,6 +407,8 @@ class BackendServer:
             self.runtime.record_card_feedback(CardFeedback(**payload))
         elif msg_type == "exclude_phrase":
             self.runtime.add_excluded_phrase(ExcludePhrase(**payload))
+        elif msg_type == "system_audio_chunk":
+            outbound.extend(self._handle_audio_chunk(payload))
         elif msg_type == "card_reanalyze":
             req = CardReanalyze(**payload)
             profile = req.profile or self.runtime.profile.id
@@ -456,6 +475,34 @@ class BackendServer:
             await self._write_packets(self._writer, packets)
         except Exception:
             logger.exception("Ошибка отправки фоновых карточек")
+
+    def _handle_audio_chunk(self, payload: dict) -> list[dict]:
+        """Process system audio chunk for speaker diarization."""
+        diarizer = self.runtime.diarizer
+        if diarizer is None:
+            return []
+
+        try:
+            import base64
+            import numpy as np
+            pcm_b64 = payload.get("pcm_base64", "")
+            if not pcm_b64:
+                return []
+            pcm_bytes = base64.b64decode(pcm_b64)
+            pcm = np.frombuffer(pcm_bytes, dtype=np.float32)
+            label = diarizer.process_chunk(pcm)
+            if label:
+                return [{
+                    "type": "speaker_label",
+                    "payload": {
+                        "chunk_index": payload.get("chunk_index", 0),
+                        "label": label,
+                        "speaker_count": diarizer.get_speaker_count(),
+                    },
+                }]
+        except Exception:
+            logger.exception("Error processing audio chunk for diarization")
+        return []
 
     async def _handle_session_control(self, payload: dict) -> list[dict]:
         event = payload.get("event")

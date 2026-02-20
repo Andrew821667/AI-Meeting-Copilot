@@ -32,6 +32,20 @@ public enum CaptureSourceMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum MeetingSubMode: String, CaseIterable, Identifiable, Sendable {
+    case oneOnOne = "one_on_one"
+    case group = "group"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .oneOnOne: return "1 на 1"
+        case .group: return "Группа"
+        }
+    }
+}
+
 @MainActor
 public final class MainViewModel: ObservableObject {
     @Published public private(set) var sessionState: SessionState = .idle
@@ -59,6 +73,7 @@ public final class MainViewModel: ObservableObject {
     @Published public var selectedProfileID: String = "negotiation"
     @Published public var selectedASRProviderID: String = ASRProviderOption.whisperKit.id
     @Published public var selectedCaptureSourceMode: CaptureSourceMode = .meeting
+    @Published public var selectedMeetingSubMode: MeetingSubMode = .oneOnOne
     @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
 
     public let availableProfiles: [ProfileOption] = ProfileOption.all
@@ -85,6 +100,8 @@ public final class MainViewModel: ObservableObject {
     private var micTranscriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
     private let audioRecorder = AudioRecorder()
+    private let chunkSender = SystemAudioChunkSender()
+    private var currentSpeakerLabel: String = "THEM"
     private var sessionStartTime: TimeInterval = CACurrentMediaTime()
     private var currentSessionID: UUID?
     private var cancellables = Set<AnyCancellable>()
@@ -159,6 +176,12 @@ public final class MainViewModel: ObservableObject {
         udsClient.onCardReanalysisReply = { [weak self] reply in
             DispatchQueue.main.async { [weak self] in
                 self?.handleCardReanalysisReply(reply)
+            }
+        }
+
+        udsClient.onSpeakerLabel = { [weak self] reply in
+            DispatchQueue.main.async { [weak self] in
+                self?.currentSpeakerLabel = reply.label
             }
         }
 
@@ -570,10 +593,40 @@ public extension MainViewModel {
                     recorder.appendMicBuffer(buffer)
                 }
 
-                // Подключаем запись системного аудио
+                // Подключаем запись системного аудио и диаризацию чанками
+                let isGroupMode = selectedMeetingSubMode == .group && selectedCaptureSourceMode == .meeting
+                let sender = chunkSender
+                if isGroupMode {
+                    profileSettings.meetingSubMode = "group"
+                    sender.start()
+                    let client = udsClient
+                    sender.onChunkReady = { pcmBase64, chunkIndex in
+                        struct AudioChunkPayload: Codable, Sendable {
+                            let pcm_base64: String
+                            let chunk_index: Int
+                            let sample_rate: Int
+                            let channels: Int
+                        }
+                        Task {
+                            try? await client.send(
+                                type: "system_audio_chunk",
+                                payload: AudioChunkPayload(
+                                    pcm_base64: pcmBase64,
+                                    chunk_index: chunkIndex,
+                                    sample_rate: 16_000,
+                                    channels: 1
+                                )
+                            )
+                        }
+                    }
+                }
+
                 if let systemASR = asrProvider as? SystemSpeechASRProvider {
                     systemASR.onRawSystemAudioBuffer = { sampleBuffer in
                         recorder.appendSystemSampleBuffer(sampleBuffer)
+                        if isGroupMode {
+                            sender.appendSampleBuffer(sampleBuffer)
+                        }
                     }
                 }
 
@@ -696,7 +749,8 @@ public extension MainViewModel {
             systemAudioService.stopCapture()
             stopSystemStateLoop()
 
-            // Останавливаем запись и получаем пути к файлам
+            // Останавливаем диаризацию чанков и запись
+            chunkSender.stop()
             let audioPaths = audioRecorder.stopRecording()
 
             if let currentSessionID {
@@ -1082,12 +1136,20 @@ private extension MainViewModel {
                         continue
                     }
 
+                    // In group mode, replace THEM with diarized speaker label
+                    let resolvedSpeaker: String
+                    if selectedMeetingSubMode == .group && segment.speaker == "THEM" {
+                        resolvedSpeaker = currentSpeakerLabel
+                    } else {
+                        resolvedSpeaker = segment.speaker
+                    }
+
                     let normalized = TranscriptSegment(
                         schemaVersion: segment.schemaVersion,
                         seq: segment.seq,
                         utteranceId: segment.utteranceId,
                         isFinal: segment.isFinal,
-                        speaker: segment.speaker,
+                        speaker: resolvedSpeaker,
                         text: filteredText,
                         tsStart: segment.tsStart,
                         tsEnd: segment.tsEnd,
