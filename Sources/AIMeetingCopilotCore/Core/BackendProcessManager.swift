@@ -3,6 +3,7 @@ import Foundation
 public enum BackendProcessError: LocalizedError {
     case backendScriptNotFound(String)
     case pythonExecutableNotFound
+    case venvSetupFailed(String)
     case processFailedToStart(String)
     case socketNotReady(String)
 
@@ -12,6 +13,8 @@ public enum BackendProcessError: LocalizedError {
             return "Не найден backend скрипт: \(path)"
         case .pythonExecutableNotFound:
             return "Не найден Python 3 для запуска backend"
+        case .venvSetupFailed(let details):
+            return "Не удалось создать venv: \(details)"
         case .processFailedToStart(let details):
             if details.isEmpty {
                 return "Backend процесс не стартовал"
@@ -34,7 +37,7 @@ public actor BackendProcessManager {
             return socketPath
         }
 
-        let launch = try resolveBackendLaunch()
+        let launch = try await resolveBackendLaunch()
 
         let socket = "/tmp/ai-meeting-copilot-\(ProcessInfo.processInfo.processIdentifier).sock"
         if FileManager.default.fileExists(atPath: socket) {
@@ -50,6 +53,7 @@ public actor BackendProcessManager {
         let outputPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = outputPipe
+        process.standardInput = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -85,19 +89,21 @@ public actor BackendProcessManager {
         socketPath = nil
     }
 
+    // MARK: - Backend Launch Resolution
+
     private struct BackendLaunch {
         let executablePath: String
         let arguments: [String]
     }
 
-    private func resolveBackendLaunch() throws -> BackendLaunch {
-        // 1) Explicit full executable path (packaged backend binary or script wrapper).
+    private func resolveBackendLaunch() async throws -> BackendLaunch {
+        // 1) Явный путь к исполняемому файлу бэкенда (env var).
         if let explicitExecutable = ProcessInfo.processInfo.environment["AIMC_BACKEND_EXECUTABLE"],
            FileManager.default.fileExists(atPath: explicitExecutable) {
             return BackendLaunch(executablePath: explicitExecutable, arguments: [])
         }
 
-        // 2) App bundle resource backend binary (distribution mode).
+        // 2) Скомпилированный бинарник бэкенда в ресурсах бандла (distribution).
         if let resourceRoot = Bundle.main.resourceURL?.path {
             let packagedBinary = (resourceRoot as NSString).appendingPathComponent("backend/backend_runner")
             if FileManager.default.fileExists(atPath: packagedBinary) {
@@ -105,55 +111,134 @@ public actor BackendProcessManager {
             }
         }
 
-        // 3) Find backend script (main.py) and prefer run.sh launcher (activates venv).
-        let backendPath = resolveBackendScriptPath()
-        guard FileManager.default.fileExists(atPath: backendPath) else {
-            throw BackendProcessError.backendScriptNotFound(backendPath)
+        // 3) Dev-режим: находим корень проекта → backend/main.py → venv python.
+        let projectRoot = try resolveProjectRoot()
+        let backendDir = (projectRoot as NSString).appendingPathComponent("backend")
+        let backendScript = (backendDir as NSString).appendingPathComponent("main.py")
+
+        guard FileManager.default.fileExists(atPath: backendScript) else {
+            throw BackendProcessError.backendScriptNotFound(backendScript)
         }
 
-        let backendDir = (backendPath as NSString).deletingLastPathComponent
-        let runScript = (backendDir as NSString).appendingPathComponent("run.sh")
-        if FileManager.default.isExecutableFile(atPath: runScript) {
-            return BackendLaunch(executablePath: "/bin/bash", arguments: [runScript])
+        let venvPython = (backendDir as NSString).appendingPathComponent(".venv/bin/python3")
+
+        // Автосоздание venv если его нет.
+        if !FileManager.default.isExecutableFile(atPath: venvPython) {
+            try await setupVenv(backendDir: backendDir)
         }
 
-        let python = try resolvePythonExecutable()
-        return BackendLaunch(executablePath: python, arguments: [backendPath])
+        guard FileManager.default.isExecutableFile(atPath: venvPython) else {
+            // Fallback на системный python если venv не удалось создать.
+            let python = try resolvePythonExecutable()
+            return BackendLaunch(executablePath: python, arguments: [backendScript])
+        }
+
+        return BackendLaunch(executablePath: venvPython, arguments: [backendScript])
     }
 
-    private func resolveBackendScriptPath() -> String {
-        if let explicit = ProcessInfo.processInfo.environment["AIMC_BACKEND_PATH"] {
+    // MARK: - Project Root Discovery
+
+    private func resolveProjectRoot() throws -> String {
+        // Env var override.
+        if let explicit = ProcessInfo.processInfo.environment["AIMC_PROJECT_ROOT"],
+           FileManager.default.fileExists(atPath: (explicit as NSString).appendingPathComponent("Package.swift")) {
             return explicit
         }
 
-        // Поиск относительно исполняемого файла (dev-режим из Xcode/swift run)
+        // Поиск вверх от исполняемого файла — ищем Package.swift.
         if let executableURL = Bundle.main.executableURL {
-            let projectCandidates = [
-                // swift run: .build/arm64-apple-macosx/debug/AIMeetingCopilot → 4 levels up
-                executableURL.deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("backend/main.py").path,
-                // swift run (short): .build/debug/AIMeetingCopilot → 3 levels up
-                executableURL.deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .appendingPathComponent("backend/main.py").path,
-                // Xcode: DerivedData/.../Build/Products/Debug/AIMeetingCopilot → рядом
-                executableURL.deletingLastPathComponent()
-                    .appendingPathComponent("backend/main.py").path,
-            ]
-            for candidate in projectCandidates {
+            var dir = executableURL.deletingLastPathComponent()
+            for _ in 0..<10 {
+                let candidate = dir.appendingPathComponent("Package.swift").path
                 if FileManager.default.fileExists(atPath: candidate) {
-                    return candidate
+                    return dir.path
                 }
+                let parent = dir.deletingLastPathComponent()
+                if parent.path == dir.path { break }
+                dir = parent
             }
         }
 
-        let cwd = FileManager.default.currentDirectoryPath
-        return (cwd as NSString).appendingPathComponent("backend/main.py")
+        // Поиск вверх от CWD.
+        var dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        for _ in 0..<10 {
+            let candidate = dir.appendingPathComponent("Package.swift").path
+            if FileManager.default.fileExists(atPath: candidate) {
+                return dir.path
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { break }
+            dir = parent
+        }
+
+        // Последняя попытка: AIMC_BACKEND_PATH.
+        if let backendPath = ProcessInfo.processInfo.environment["AIMC_BACKEND_PATH"],
+           FileManager.default.fileExists(atPath: backendPath) {
+            return ((backendPath as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+        }
+
+        throw BackendProcessError.backendScriptNotFound(
+            "Не удалось найти корень проекта (Package.swift). "
+            + "Укажите AIMC_PROJECT_ROOT или AIMC_BACKEND_PATH."
+        )
     }
+
+    // MARK: - Venv Auto-Setup
+
+    private func setupVenv(backendDir: String) async throws {
+        let python = try resolvePythonExecutable()
+        let venvPath = (backendDir as NSString).appendingPathComponent(".venv")
+        let requirementsPath = ((backendDir as NSString)
+            .deletingLastPathComponent as NSString)
+            .appendingPathComponent("requirements.txt")
+
+        // python3 -m venv backend/.venv
+        let venvProcess = Process()
+        venvProcess.executableURL = URL(fileURLWithPath: python)
+        venvProcess.arguments = ["-m", "venv", venvPath]
+        venvProcess.standardInput = FileHandle.nullDevice
+        let venvPipe = Pipe()
+        venvProcess.standardOutput = venvPipe
+        venvProcess.standardError = venvPipe
+
+        do {
+            try venvProcess.run()
+            venvProcess.waitUntilExit()
+        } catch {
+            throw BackendProcessError.venvSetupFailed(error.localizedDescription)
+        }
+
+        guard venvProcess.terminationStatus == 0 else {
+            let output = Self.readPipeOutput(pipe: venvPipe)
+            throw BackendProcessError.venvSetupFailed("venv exit \(venvProcess.terminationStatus): \(output)")
+        }
+
+        // pip install -r requirements.txt (если файл есть)
+        guard FileManager.default.fileExists(atPath: requirementsPath) else { return }
+
+        let pipPath = (venvPath as NSString).appendingPathComponent("bin/pip")
+        let pipProcess = Process()
+        pipProcess.executableURL = URL(fileURLWithPath: pipPath)
+        pipProcess.arguments = ["install", "-r", requirementsPath]
+        pipProcess.standardInput = FileHandle.nullDevice
+        let pipPipe = Pipe()
+        pipProcess.standardOutput = pipPipe
+        pipProcess.standardError = pipPipe
+
+        do {
+            try pipProcess.run()
+            pipProcess.waitUntilExit()
+        } catch {
+            throw BackendProcessError.venvSetupFailed("pip: \(error.localizedDescription)")
+        }
+
+        if pipProcess.terminationStatus != 0 {
+            let output = Self.readPipeOutput(pipe: pipPipe)
+            throw BackendProcessError.venvSetupFailed("pip exit \(pipProcess.terminationStatus): \(output)")
+        }
+    }
+
+    // MARK: - Helpers
 
     private func resolveExportsDirectory() -> String {
         if let explicit = ProcessInfo.processInfo.environment["AIMC_EXPORTS_DIR"], !explicit.isEmpty {
@@ -174,32 +259,11 @@ public actor BackendProcessManager {
             return explicit
         }
 
-        // Prefer venv python next to backend script (has all dependencies installed).
-        var candidates: [String] = []
-        if let executableURL = Bundle.main.executableURL {
-            let projectRoots = [
-                executableURL.deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent(),
-                executableURL.deletingLastPathComponent()
-                    .deletingLastPathComponent()
-                    .deletingLastPathComponent(),
-            ]
-            for root in projectRoots {
-                let venvPython = root.appendingPathComponent("backend/.venv/bin/python3").path
-                if FileManager.default.isExecutableFile(atPath: venvPython) {
-                    candidates.append(venvPython)
-                    break
-                }
-            }
-        }
-
-        candidates.append(contentsOf: [
+        let candidates = [
             "/opt/homebrew/bin/python3",
             "/usr/local/bin/python3",
             "/usr/bin/python3"
-        ])
+        ]
 
         if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
             return found
