@@ -362,9 +362,6 @@ class BackendServer:
 
             # В force mode генерируем ответ LLM в фоне, чтобы не блокировать транскрипцию.
             orch = self.runtime.orchestrator
-            logger.info("SEGMENT: force_mode=%s should_force=%s final=%s speaker=%s text='%.60s'",
-                        orch.force_answer_mode, orch._should_force_answer(seg),
-                        seg.isFinal, seg.speaker, seg.text[:60])
             if orch.force_answer_mode and orch._should_force_answer(seg):
                 # Сохраняем в буферы сразу (синхронно)
                 orch._ingest_segment_to_buffers(seg)
@@ -425,8 +422,6 @@ class BackendServer:
             orch = self.runtime.orchestrator
             context = orch._build_force_context(seg)
             trigger_reason = orch._build_force_answer_reason(seg)
-            logger.info("BG_FORCE: question_text='%s' context_len=%d context_preview='%.120s'",
-                        seg.text[:100], len(context), context[:120])
             result = await orch.llm.build_answer_card(
                 scenario=orch.profile.id,
                 speaker=seg.speaker,

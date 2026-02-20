@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass
 
 from models import InsightCard
-
-logger = logging.getLogger(__name__)
 
 try:
     from openai import AsyncOpenAI  # type: ignore
@@ -237,7 +234,6 @@ class RealtimeLLMClient:
                 else:
                     parts.append("Ответь на последнюю реплику из контекста выше.")
                 prompt = "\n\n".join(parts)
-                logger.info("BUILD_ANSWER prompt (%.200s)", prompt[:200])
                 answer = await asyncio.wait_for(
                     self.transport.generate_text(
                         prompt=prompt,

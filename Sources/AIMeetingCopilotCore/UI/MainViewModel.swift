@@ -3,23 +3,6 @@ import SwiftUI
 import Combine
 import QuartzCore
 import AppKit
-import os.log
-
-private let aimcLog = OSLog(subsystem: "com.andrew821667.ai-meeting-copilot", category: "capture")
-
-private func logAIMC(_ message: String) {
-    os_log("%{public}@", log: aimcLog, type: .default, message)
-    // Также пишем в файл для надёжности
-    let line = "\(Date()) \(message)\n"
-    let path = "/tmp/aimc_debug.log"
-    if let fh = FileHandle(forWritingAtPath: path) {
-        fh.seekToEndOfFile()
-        fh.write(line.data(using: .utf8)!)
-        fh.closeFile()
-    } else {
-        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
-    }
-}
 
 public enum CaptureSourceMode: String, CaseIterable, Identifiable, Sendable {
     case meeting = "meeting"
@@ -538,17 +521,12 @@ public extension MainViewModel {
 
         Task {
             do {
-                logAIMC("[AIMC] startCapture: creating ASR provider...")
                 asrProvider = makeASRProvider(optionID: selectedASRProviderID, captureMode: selectedCaptureSourceMode)
-                logAIMC("[AIMC] startCapture: starting state machine...")
                 let sessionID = try await stateMachine.startCapture()
                 currentSessionID = sessionID
                 sessionState = .capturing
-                logAIMC("[AIMC] startCapture: sessionID=\(sessionID)")
 
-                logAIMC("[AIMC] startCapture: starting backend...")
                 let socketPath = try await backendProcessManager.start()
-                logAIMC("[AIMC] startCapture: backend socket=\(socketPath)")
                 try await udsClient.connect(path: socketPath)
                 try await udsClient.send(
                     type: "session_control",
@@ -559,10 +537,8 @@ public extension MainViewModel {
                         profileOverrides: profileSettings
                     )
                 )
-                logAIMC("[AIMC] startCapture: session_control sent")
 
                 captureMode = selectedCaptureSourceMode == .meeting ? .screenCaptureKit : .micOnly
-                logAIMC("[AIMC] startCapture: starting mic capture (mode=\(captureMode))...")
 
                 // В meeting-режиме запускаем второй ASR для транскрипции микрофона (ME)
                 if selectedCaptureSourceMode == .meeting {
@@ -580,7 +556,6 @@ public extension MainViewModel {
                     (asrProvider as? WhisperKitProvider)?.speechProvider,
                     micASRProvider as? SpeechASRProvider,
                 ].compactMap { $0 }
-                logAIMC("[AIMC] startCapture: feeding audio to \(speechProviders.count) SpeechASRProvider(s)")
                 micCaptureService.onAudioBuffer = { buffer in
                     for provider in speechProviders {
                         provider.feedAudioBuffer(buffer)
@@ -589,7 +564,6 @@ public extension MainViewModel {
 
                 try micCaptureService.startCapture(sessionStartTime: sessionStartTime)
                 systemAudioService.startCapture(mode: captureMode, sessionStartTime: sessionStartTime)
-                logAIMC("[AIMC] startCapture: audio capture started")
 
                 startSystemStateLoop()
                 startASRStreamingTask()
@@ -613,7 +587,6 @@ public extension MainViewModel {
                 activeCards.removeAll(keepingCapacity: true)
                 detachedCardWindowManager.closeAll()
 
-                logAIMC("[AIMC] startCapture FAILED: \(error)")
                 errorMessage = "Не удалось запустить сессию: \(error.localizedDescription)"
             }
         }
@@ -1071,11 +1044,8 @@ private extension MainViewModel {
         transcriptTask?.cancel()
         transcriptTask = Task {
             do {
-                logAIMC("[AIMC] ASR: starting stream...")
                 try await asrProvider.startStream()
-                logAIMC("[AIMC] ASR: stream started, waiting for segments...")
                 for await segment in asrProvider.segments {
-                    logAIMC("[AIMC] ASR: segment received: final=\(segment.isFinal) text=\(segment.text.prefix(60))")
                     guard sessionState == .capturing else { break }
                     guard let filteredText = hallucinationFilter.apply(text: segment.text, vadDetectedSpeech: true) else {
                         continue
@@ -1106,7 +1076,6 @@ private extension MainViewModel {
                     }
                 }
             } catch {
-                logAIMC("[AIMC] ASR ERROR: \(error)")
                 await MainActor.run {
                     self.errorMessage = "Ошибка потока ASR: \(error.localizedDescription)"
                 }
