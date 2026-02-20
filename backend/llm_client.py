@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
 from dataclasses import dataclass
 
 from models import InsightCard
+
+logger = logging.getLogger(__name__)
 
 try:
     from openai import AsyncOpenAI  # type: ignore
@@ -71,6 +74,22 @@ class DeepSeekTransport(LLMTransport):
         if not content:
             return {}
         return json.loads(content)
+
+    async def generate_text(self, *, prompt: str, system: str, timeout_sec: float) -> str:
+        """Генерация обычного текстового ответа (не JSON)."""
+        response = await asyncio.wait_for(
+            self.client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            ),
+            timeout=timeout_sec,
+        )
+        return (response.choices[0].message.content or "").strip()
 
     @staticmethod
     def _extract_json_text(raw: str) -> str:
@@ -180,6 +199,101 @@ class RealtimeLLMClient:
                 trigger_reason=trigger_reason,
                 source_ts_end=source_ts_end,
                 agent_name=agent_name,
+            )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
+
+    async def build_answer_card(
+        self,
+        *,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        question_text: str = "",
+        source_ts_end: float,
+        agent_name: str = "Ответы на вопросы",
+    ) -> LLMCallResult:
+        """Генерирует карточку с прямым развёрнутым ответом на вопрос (как ChatGPT)."""
+        started = time.perf_counter()
+        try:
+            if self.transport is None or not hasattr(self.transport, "generate_text"):
+                await asyncio.sleep(0.15)
+                answer = f"(LLM недоступен) Контекст: {context.strip().splitlines()[-1][:200] if context.strip() else 'нет контекста'}"
+            else:
+                system_prompt = (
+                    "Ты — экспертный ассистент. Тебе передают фрагмент разговора и вопрос/реплику. "
+                    "Дай развёрнутый, полезный ответ на вопрос или реплику. "
+                    "Отвечай по сути, как ChatGPT — структурированно, с примерами если уместно. "
+                    "Не упоминай что ты ассистент встреч. "
+                    "Просто дай качественный ответ на вопрос."
+                )
+                # Формируем промпт с чистым текстом вопроса
+                parts = []
+                if context.strip():
+                    parts.append(f"Контекст разговора:\n{context}")
+                q = question_text.strip() if question_text else ""
+                if q:
+                    parts.append(f"Вопрос/реплика: {q}")
+                else:
+                    parts.append("Ответь на последнюю реплику из контекста выше.")
+                prompt = "\n\n".join(parts)
+                logger.info("BUILD_ANSWER prompt (%.200s)", prompt[:200])
+                answer = await asyncio.wait_for(
+                    self.transport.generate_text(
+                        prompt=prompt,
+                        system=system_prompt,
+                        timeout_sec=self.timeout_sec,
+                    ),
+                    timeout=self.timeout_sec,
+                )
+            card = InsightCard(
+                id=str(uuid.uuid4()),
+                scenario=scenario,
+                card_mode="direct_answer",
+                trigger_reason=trigger_reason,
+                insight=answer,
+                reply_cautious="",
+                reply_confident="",
+                severity="info",
+                timestamp=asyncio.get_running_loop().time(),
+                speaker=speaker,
+                agent_name=agent_name,
+                is_fallback=False,
+                source_ts_end=source_ts_end,
+            )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
+        except asyncio.TimeoutError:
+            card = InsightCard(
+                id=str(uuid.uuid4()),
+                scenario=scenario,
+                card_mode="direct_answer",
+                trigger_reason=trigger_reason,
+                insight="Превышено время ожидания LLM. Попробуйте повторить вопрос.",
+                reply_cautious="",
+                reply_confident="",
+                severity="warning",
+                timestamp=asyncio.get_running_loop().time(),
+                speaker=speaker,
+                agent_name=agent_name,
+                is_fallback=True,
+                source_ts_end=source_ts_end,
+            )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=True)
+        except Exception:
+            card = InsightCard(
+                id=str(uuid.uuid4()),
+                scenario=scenario,
+                card_mode="direct_answer",
+                trigger_reason=trigger_reason,
+                insight="Ошибка при обращении к LLM.",
+                reply_cautious="",
+                reply_confident="",
+                severity="warning",
+                timestamp=asyncio.get_running_loop().time(),
+                speaker=speaker,
+                agent_name=agent_name,
+                is_fallback=True,
+                source_ts_end=source_ts_end,
             )
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
 

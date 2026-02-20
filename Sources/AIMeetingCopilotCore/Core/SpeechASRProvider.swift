@@ -2,6 +2,22 @@ import Foundation
 import AVFoundation
 import Speech
 import QuartzCore
+import os.log
+
+private let asrLog = OSLog(subsystem: "com.andrew821667.ai-meeting-copilot", category: "asr")
+
+private func logASR(_ message: String) {
+    os_log("%{public}@", log: asrLog, type: .default, message)
+    let line = "\(Date()) [ASR] \(message)\n"
+    let path = "/tmp/aimc_debug.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    }
+}
 
 private final class RecognitionRequestBridge: @unchecked Sendable {
     private let lock = NSLock()
@@ -18,12 +34,6 @@ private final class RecognitionRequestBridge: @unchecked Sendable {
         let request = self.request
         lock.unlock()
         request?.append(buffer)
-    }
-
-    func makeTapBlock() -> AVAudioNodeTapBlock {
-        { [weak self] buffer, _ in
-            self?.append(buffer: buffer)
-        }
     }
 }
 
@@ -47,6 +57,9 @@ public enum SpeechASRError: LocalizedError {
     }
 }
 
+/// ASR-провайдер на базе Apple Speech Framework.
+/// Не создаёт свой AVAudioEngine — получает аудио-буферы извне через `feedAudioBuffer(_:)`.
+/// Это позволяет использовать единый AVAudioEngine из MicrophoneCaptureService.
 @MainActor
 public final class SpeechASRProvider: ASRProvider {
     public var segments: AsyncStream<TranscriptSegment> {
@@ -57,7 +70,6 @@ public final class SpeechASRProvider: ASRProvider {
     private var continuation: AsyncStream<TranscriptSegment>.Continuation?
     private let seqGenerator = SequenceNumberGenerator(startAt: 50_000)
 
-    private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let requestBridge = RecognitionRequestBridge()
@@ -79,21 +91,33 @@ public final class SpeechASRProvider: ASRProvider {
         continuation = continuationRef
     }
 
+    /// Передать аудио-буфер из внешнего AVAudioEngine в распознавание.
+    /// Вызывается из MicrophoneCaptureService на каждый буфер.
+    public nonisolated func feedAudioBuffer(_ buffer: AVAudioPCMBuffer) {
+        requestBridge.append(buffer: buffer)
+    }
+
     public func startStream() async throws {
+        logASR("startStream called")
         stopInternal()
 
         guard recognizer != nil else {
+            logASR("ERROR: recognizer is nil")
             throw SpeechASRError.recognizerUnavailable
         }
 
         let auth = await Self.resolveSpeechAuthorization()
+        logASR("auth status: \(auth.rawValue)")
         guard auth == .authorized else {
+            logASR("ERROR: auth denied (\(auth.rawValue))")
             throw SpeechASRError.authorizationDenied
         }
 
         guard let recognizer, recognizer.isAvailable else {
+            logASR("ERROR: recognizer not available")
             throw SpeechASRError.recognizerUnavailable
         }
+        logASR("recognizer available, supportsOnDevice=\(recognizer.supportsOnDeviceRecognition)")
 
         startedAt = CACurrentMediaTime()
         currentUtteranceID = UUID().uuidString
@@ -103,24 +127,7 @@ public final class SpeechASRProvider: ASRProvider {
         isRunning = true
 
         try startRecognitionTask(using: recognizer)
-
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else {
-            isRunning = false
-            throw SpeechASRError.inputNodeUnavailable
-        }
-
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: requestBridge.makeTapBlock())
-
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
-        } catch {
-            isRunning = false
-            throw SpeechASRError.engineStartFailed(error.localizedDescription)
-        }
+        logASR("recognition task started, waiting for audio buffers from MicrophoneCaptureService...")
     }
 
     private func startRecognitionTask(using recognizer: SFSpeechRecognizer) throws {
@@ -143,6 +150,7 @@ public final class SpeechASRProvider: ASRProvider {
         recognitionRequest = request
         requestBridge.set(request)
 
+        logASR("creating recognitionTask...")
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result {
                 Task { @MainActor [weak self] in
@@ -155,6 +163,7 @@ public final class SpeechASRProvider: ASRProvider {
                 }
             }
         }
+        logASR("recognitionTask created")
     }
 
     public func stopStream() async {
@@ -167,14 +176,14 @@ public final class SpeechASRProvider: ASRProvider {
     }
 
     private func handleRecognitionFailure(_ error: Error) async {
-        guard isRunning else { return }
-        guard !Task.isCancelled else { return }
-        guard !isRestartingRecognition else { return }
-        guard let recognizer else { return }
+        logASR("recognition failure: \(error)")
+        guard isRunning else { logASR("  → not running, ignoring"); return }
+        guard !Task.isCancelled else { logASR("  → task cancelled, ignoring"); return }
+        guard !isRestartingRecognition else { logASR("  → already restarting, ignoring"); return }
+        guard let recognizer else { logASR("  → no recognizer, ignoring"); return }
 
         isRestartingRecognition = true
 
-        // Остановить только recognition, аудио-движок продолжает работать
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         recognitionTask = nil
@@ -185,7 +194,8 @@ public final class SpeechASRProvider: ASRProvider {
         currentUtteranceID = UUID().uuidString
         lastPartialText = ""
 
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        // Даём больше времени перед перезапуском, чтобы не зацикливаться
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 секунда
 
         guard isRunning else {
             isRestartingRecognition = false
@@ -194,14 +204,16 @@ public final class SpeechASRProvider: ASRProvider {
 
         do {
             try startRecognitionTask(using: recognizer)
+            logASR("recognition restarted after failure")
         } catch {
-            // Не роняем сессию — попробуем при следующем сбое
+            logASR("ERROR: restart failed: \(error)")
         }
         isRestartingRecognition = false
     }
 
     private func emit(result: SFSpeechRecognitionResult) {
         let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
+        logASR("emit: isFinal=\(result.isFinal) text=\"\(text.prefix(80))\"")
         guard !text.isEmpty else { return }
 
         // Частичные результаты приходят часто; дубли не отправляем.
@@ -239,9 +251,6 @@ public final class SpeechASRProvider: ASRProvider {
         guard isRunning else { return }
         isRunning = false
         isRestartingRecognition = false
-
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
 
         recognitionRequest?.endAudio()
         recognitionTask?.cancel()

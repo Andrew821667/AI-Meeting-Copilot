@@ -9,6 +9,8 @@ public enum MicrophoneCaptureError: Error {
 public final class MicrophoneCaptureService {
     public var onMicEvent: ((MicEvent) -> Void)?
     public var onAudioLevel: ((AudioLevelEvent) -> Void)?
+    /// Callback для передачи аудио-буферов в SpeechASRProvider
+    public var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private let engine = AVAudioEngine()
     private let seqGenerator: SequenceNumberGenerator
@@ -58,6 +60,9 @@ public final class MicrophoneCaptureService {
 
     private func handleBuffer(_ buffer: AVAudioPCMBuffer) {
         formatWatchdog.observe(format: buffer.format)
+
+        // Передаём буфер в ASR-провайдер для распознавания речи
+        onAudioBuffer?(buffer)
 
         let rms = Self.calculateRMS(buffer: buffer)
         let timestamp = sampleClock.advance(frames: Int(buffer.frameLength), sampleRate: buffer.format.sampleRate) - sampleClock.sessionStartTime

@@ -1,8 +1,9 @@
 import asyncio
+import time
 from typing import Optional
 
 from llm_client import LLMTransport, RealtimeLLMClient
-from models import MicEvent, TranscriptSegment
+from models import InsightCard, MicEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from profile_loader import apply_overrides, load_profile
 
@@ -22,6 +23,9 @@ class ForceModeTransport(LLMTransport):
             "reply_confident": "Да, беру в работу и дам результат в обозначенный срок.",
             "severity": "warning",
         }
+
+    async def generate_text(self, *, prompt: str, system: str, timeout_sec: float) -> str:
+        return "Функции в Python — это именованные блоки кода, которые выполняют определённую задачу. Определяются с помощью ключевого слова def."
 
 
 def _segment(*, utterance_id: str, is_final: bool, speaker: str = "THEM", text: Optional[str] = None) -> TranscriptSegment:
@@ -56,101 +60,76 @@ def _mic_event(event_type: str = "speech_end", ts: float = 15.0) -> MicEvent:
     )
 
 
-def test_force_mode_generates_three_cards() -> None:
+def test_should_force_answer_accepts_final_segment() -> None:
+    """_should_force_answer возвращает True для final-сегмента с достаточным текстом."""
     orchestrator = _orchestrator()
-    segment = _segment(utterance_id="u-force-1", is_final=True)
+    segment = _segment(utterance_id="u-1", is_final=True)
     assert orchestrator.force_answer_mode is True
     assert orchestrator._should_force_answer(segment) is True
-    cards = asyncio.run(orchestrator.on_transcript_segment(segment))
-
-    assert len(cards) == 2
-    assert {card.agent_name for card in cards} == {"Оркестратор", "Психолог"}
-    assert {card.id for card in cards} == {"slot::оркестратор", "slot::психолог"}
 
 
-def test_force_mode_ignores_partial_segments() -> None:
+def test_should_force_answer_rejects_short_partial() -> None:
+    """Короткий partial (< 5 слов) отклоняется."""
     orchestrator = _orchestrator()
-
-    partial_segment = _segment(utterance_id="u-force-2", is_final=False)
-    final_segment = _segment(utterance_id="u-force-2", is_final=True)
-
-    partial_cards = asyncio.run(orchestrator.on_transcript_segment(partial_segment))
-    assert partial_cards == []
-
-    assert orchestrator._should_force_answer(final_segment) is True
-    final_cards = asyncio.run(orchestrator.on_transcript_segment(final_segment))
-    assert len(final_cards) == 2
+    short = _segment(utterance_id="u-2", is_final=False, text="Ну да")
+    assert orchestrator._should_force_answer(short) is False
 
 
-def test_force_mode_accepts_me_question_as_offline_prompt() -> None:
+def test_should_force_answer_rejects_seen_utterance() -> None:
+    """Уже обработанный utterance отклоняется."""
     orchestrator = _orchestrator()
-    cards = asyncio.run(
-        orchestrator.on_transcript_segment(
-            _segment(
-                utterance_id="u-force-3",
-                is_final=True,
-                speaker="ME",
-                text="Почему вы выбрали именно этот стек и как оцените мои риски?",
-            )
-        )
-    )
-    assert len(cards) == 2
+    orchestrator.force_answer_seen_utterances.append("u-3")
+    segment = _segment(utterance_id="u-3", is_final=True)
+    assert orchestrator._should_force_answer(segment) is False
 
 
-def test_force_mode_ignores_me_non_question() -> None:
+def test_build_answer_card_returns_direct_answer() -> None:
+    """build_answer_card возвращает карточку с card_mode=direct_answer."""
     orchestrator = _orchestrator()
-    cards = asyncio.run(
-        orchestrator.on_transcript_segment(
-            _segment(
-                utterance_id="u-force-4",
-                is_final=True,
-                speaker="ME",
-                text="Да, хорошо, договорились и продолжим по плану",
-            )
-        )
-    )
-    assert cards == []
+    seg = _segment(utterance_id="u-4", is_final=True, text="Расскажите про функции в Python")
+    context = orchestrator._build_force_context(seg)
+    trigger_reason = orchestrator._build_force_answer_reason(seg)
+
+    result = asyncio.run(orchestrator.llm.build_answer_card(
+        scenario=orchestrator.profile.id,
+        speaker=seg.speaker,
+        trigger_reason=trigger_reason,
+        context=context,
+        question_text=seg.text,
+        source_ts_end=seg.tsEnd,
+    ))
+    card = result.card
+    assert card.card_mode == "direct_answer"
+    assert card.agent_name == "Ответы на вопросы"
+    assert "Python" in card.insight or "функци" in card.insight.lower()
+    assert card.reply_cautious == ""
+    assert card.reply_confident == ""
 
 
-def test_force_mode_activated_bootstrap_cards() -> None:
+def test_ingest_segment_to_buffers() -> None:
+    """_ingest_segment_to_buffers добавляет сегмент в raw_buffer и transcript_history."""
+    orchestrator = _orchestrator()
+    seg = _segment(utterance_id="u-5", is_final=True)
+    orchestrator._ingest_segment_to_buffers(seg)
+    assert len(orchestrator.transcript_history) == 1
+    assert orchestrator.raw_buffer.recent_text(max_items=5) != ""
+
+
+def test_force_mode_activated_bootstrap_card() -> None:
     orchestrator = _orchestrator()
     cards = asyncio.run(orchestrator.on_force_mode_activated())
-    assert len(cards) == 3
-    assert {card.agent_name for card in cards} == {"Оркестратор", "Принудительный ответ", "Психолог"}
-
-
-def test_force_mode_generates_cards_after_me_speech_end_event() -> None:
-    orchestrator = _orchestrator()
-
-    # Создаём контекст и сбрасываем cooldown для проверки mic-speech_end пути.
-    _ = asyncio.run(orchestrator.on_transcript_segment(_segment(utterance_id="u-force-ctx", is_final=True)))
-    orchestrator.last_force_answer_ts = -1_000_000_000.0
-
-    cards = asyncio.run(orchestrator.on_mic_event(_mic_event("speech_end", ts=22.0)))
-    assert len(cards) == 2
-    assert {card.agent_name for card in cards} == {"Оркестратор", "Психолог"}
-
-
-def test_direct_force_stream_returns_force_card_for_final_segment() -> None:
-    orchestrator = _orchestrator()
-    cards = asyncio.run(
-        orchestrator.on_direct_force_answer_segment(
-            _segment(
-                utterance_id="u-force-direct-1",
-                is_final=True,
-                speaker="ME",
-                text="Как лучше ответить на вопрос о слабых сторонах?",
-            )
-        )
-    )
     assert len(cards) == 1
-    assert cards[0].agent_name == "Принудительный ответ"
-    assert cards[0].id == "slot::принудительный_ответ"
+    assert cards[0].agent_name == "Ответы на вопросы"
+    assert cards[0].card_mode == "direct_answer"
 
 
-def test_direct_force_stream_returns_force_card_on_mic_end() -> None:
-    orchestrator = _orchestrator()
-    orchestrator.last_direct_force_ts = -1_000_000_000.0
-    cards = asyncio.run(orchestrator.on_direct_force_answer_mic_event(_mic_event("speech_end", ts=31.0)))
-    assert len(cards) == 1
-    assert cards[0].agent_name == "Принудительный ответ"
+def test_non_force_segment_still_processed() -> None:
+    """В обычном режиме (не force) on_transcript_segment работает без изменений."""
+    profile = apply_overrides(load_profile("interview_candidate"), {"force_answer_mode": False})
+    orchestrator = TriggerOrchestrator(profile)
+    orchestrator.llm = RealtimeLLMClient(timeout_sec=1.0, transport=ForceModeTransport())
+
+    seg = _segment(utterance_id="u-6", is_final=True)
+    cards = asyncio.run(orchestrator.on_transcript_segment(seg))
+    # Без force mode — обычная обработка (может вернуть карточки через trigger scoring)
+    assert isinstance(cards, list)

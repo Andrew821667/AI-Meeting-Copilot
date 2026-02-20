@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from collections import deque
+
+logger = logging.getLogger(__name__)
 
 from diarization_gate import DiarizationGate
 from llm_client import RealtimeLLMClient
@@ -27,7 +30,7 @@ class TriggerOrchestrator:
         "и один практический совет, как ответить спокойнее.",
     )
     DIRECT_FORCE_AGENT_PROFILE = (
-        "Принудительный ответ",
+        "Ответы на вопросы",
         "Прямой поток помощи (вне оркестратора): ответь по сути на текущий вопрос/реплику. "
         "Формат: 1-2 фразы, затем осторожный и уверенный варианты.",
     )
@@ -88,30 +91,23 @@ class TriggerOrchestrator:
             return []
 
         source_ts_end = time.monotonic()
-        context = self.raw_buffer.recent_text(max_items=20)
-        if not context:
-            context = "Контекст пока пуст. Ждём первую содержательную реплику."
-
-        orchestrator_cards = await self._generate_cards_for_profiles(
-            profiles=[self.MAIN_AGENT_PROFILE, self.PSYCHOLOGIST_AGENT_PROFILE],
+        card = InsightCard(
+            id=self._slot_card_id("Ответы на вопросы"),
+            scenario=self.profile.id,
+            card_mode="direct_answer",
+            trigger_reason="режим ответов на вопросы активирован",
+            insight="Режим ответов на вопросы активен. Задайте вопрос голосом — LLM даст развёрнутый ответ.",
+            reply_cautious="",
+            reply_confident="",
+            severity="info",
+            timestamp=asyncio.get_running_loop().time(),
             speaker="THEM",
-            trigger_reason="поток оркестратора активирован",
-            context=context,
+            agent_name="Ответы на вопросы",
+            is_fallback=False,
             source_ts_end=source_ts_end,
-            force_mode=True,
         )
-        direct_cards = await self._generate_cards_for_profiles(
-            profiles=[self.DIRECT_FORCE_AGENT_PROFILE],
-            speaker="THEM",
-            trigger_reason="прямой LLM-поток активирован",
-            context=context,
-            source_ts_end=source_ts_end,
-            force_mode=True,
-        )
-        cards = [*orchestrator_cards, *direct_cards]
-        for card in cards:
-            self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
-        return cards
+        self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
+        return [card]
 
     async def on_mic_event(self, event: MicEvent) -> list[InsightCard]:
         if self.paused:
@@ -131,27 +127,8 @@ class TriggerOrchestrator:
                 self.telemetry.on_card_shown(shown, shown_ts=event.timestamp)
                 cards.append(shown)
 
-            if not cards and self.force_answer_mode and self._should_emit_force_cards_on_mic_end():
-                context = self.raw_buffer.recent_text(max_items=20)
-                if not context:
-                    context = "Контекст ограничен: последняя реплика пользователя завершена."
-                generated = await self._generate_cards_for_profiles(
-                    profiles=[self.MAIN_AGENT_PROFILE, self.PSYCHOLOGIST_AGENT_PROFILE],
-                    speaker="ME",
-                    trigger_reason="поток оркестратора: завершена реплика пользователя",
-                    context=context,
-                    source_ts_end=event.timestamp,
-                    force_mode=True,
-                )
-                if generated:
-                    now = time.monotonic()
-                    self.last_force_answer_ts = now
-                    self.last_card_severity = self._max_severity(generated)
-                    self.recent_card_ts.append(now)
-                    self._trim_card_window(now)
-                    for card in generated:
-                        self.telemetry.on_card_shown(card, shown_ts=event.timestamp)
-                    cards.extend(generated)
+            # Force-answer карточки генерируются только в on_transcript_segment,
+            # чтобы не блокировать обработку других сообщений.
 
         return cards
 
@@ -167,54 +144,27 @@ class TriggerOrchestrator:
             self.degraded_mode = should_degrade
             self.scorer.set_optional_signals_enabled(not should_degrade)
 
+    def _ingest_segment_to_buffers(self, segment: TranscriptSegment) -> None:
+        """Сохраняет сегмент в буферы (вызывается из main.py перед фоновой генерацией)."""
+        if segment.isFinal:
+            self.transcript_history.append(segment)
+        self.raw_buffer.append(
+            RawBufferEntry(
+                speaker=segment.speaker,
+                text=segment.text,
+                ts_start=segment.tsStart,
+                ts_end=segment.tsEnd,
+            )
+        )
+
     async def on_transcript_segment(self, segment: TranscriptSegment) -> list[InsightCard]:
         cards: list[InsightCard] = []
 
         if self.paused:
             return cards
 
-        if self.force_answer_mode and self._should_force_answer(segment):
-            # Сохраняем сегмент в буферы ДО генерации — иначе контекст для LLM деградирует.
-            # Partial-сегменты не добавляем в history (final перезапишет), но в raw_buffer — да.
-            if segment.isFinal:
-                self.transcript_history.append(segment)
-            self.raw_buffer.append(
-                RawBufferEntry(
-                    speaker=segment.speaker,
-                    text=segment.text,
-                    ts_start=segment.tsStart,
-                    ts_end=segment.tsEnd,
-                )
-            )
-
-            context = self._build_force_context(segment)
-            trigger_reason = self._build_force_answer_reason(segment)
-            generated = await self._generate_cards_for_profiles(
-                profiles=[self.MAIN_AGENT_PROFILE, self.PSYCHOLOGIST_AGENT_PROFILE],
-                speaker=segment.speaker,
-                trigger_reason=trigger_reason,
-                context=context,
-                source_ts_end=segment.tsEnd,
-                force_mode=True,
-            )
-            if generated:
-                now = time.monotonic()
-                self.last_force_answer_ts = now
-                self.force_answer_seen_utterances.append(segment.utteranceId)
-                self.last_card_severity = self._max_severity(generated)
-                self.recent_utterances.append(segment.utteranceId)
-                self.recent_card_ts.append(now)
-                self._trim_card_window(now)
-
-                if self.mic_speaking:
-                    for card in generated:
-                        self._enqueue_pending(card)
-                    return cards
-
-                for card in generated:
-                    self.telemetry.on_card_shown(card, shown_ts=segment.tsEnd)
-                cards.extend(generated)
-                return cards
+        # Force-answer обработка вынесена в main.py (_bg_force_answer) для неблокирующей генерации.
+        # Здесь только обычная (не-force) обработка сегментов.
 
         if not segment.isFinal:
             self.telemetry.asr_partial_latency_ms.append(400)
@@ -328,29 +278,27 @@ class TriggerOrchestrator:
 
         source_ts_end = segment.tsEnd if segment.tsEnd > 0 else time.monotonic()
         context = self._build_direct_force_context(speaker=segment.speaker, text=segment.text)
-        cards = await self._generate_cards_for_profiles(
-            profiles=[self.DIRECT_FORCE_AGENT_PROFILE],
+        result = await self.llm.build_answer_card(
+            scenario=self.profile.id,
             speaker=segment.speaker,
             trigger_reason="прямой LLM-поток: автоответ на реплику",
             context=context,
+            question_text=segment.text,
             source_ts_end=source_ts_end,
-            force_mode=True,
         )
-        if not cards:
-            return []
 
         now = time.monotonic()
         self.last_direct_force_ts = now
         if segment.isFinal:
             self.direct_force_seen_utterances.append(segment.utteranceId)
         self.last_direct_force_text = normalize(segment.text)
-        self.last_card_severity = self._max_severity(cards)
+        card = result.card
+        card.id = self._slot_card_id(card.agent_name)
+        self.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
+        self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
         self.recent_card_ts.append(now)
         self._trim_card_window(now)
-
-        for card in cards:
-            self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
-        return cards
+        return [card]
 
     async def on_direct_force_answer_mic_event(self, event: MicEvent) -> list[InsightCard]:
         if self.paused or not self.force_answer_mode:
@@ -363,26 +311,23 @@ class TriggerOrchestrator:
             text="",
         )
         source_ts_end = event.timestamp if event.timestamp > 0 else time.monotonic()
-        cards = await self._generate_cards_for_profiles(
-            profiles=[self.DIRECT_FORCE_AGENT_PROFILE],
+        result = await self.llm.build_answer_card(
+            scenario=self.profile.id,
             speaker="ME",
             trigger_reason="прямой LLM-поток: завершена реплика пользователя",
             context=context,
             source_ts_end=source_ts_end,
-            force_mode=True,
         )
-        if not cards:
-            return []
 
         now = time.monotonic()
         self.last_direct_force_ts = now
-        self.last_card_severity = self._max_severity(cards)
+        card = result.card
+        card.id = self._slot_card_id(card.agent_name)
+        self.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
+        self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
         self.recent_card_ts.append(now)
         self._trim_card_window(now)
-
-        for card in cards:
-            self.telemetry.on_card_shown(card, shown_ts=source_ts_end)
-        return cards
+        return [card]
 
     def _should_trigger(self, score: float, segment: TranscriptSegment) -> bool:
         if self._is_excluded(segment):
@@ -431,7 +376,7 @@ class TriggerOrchestrator:
             prefix = "ваш вопрос"
         else:
             prefix = "вопрос собеседника"
-        return f"принудительный режим ответа: {prefix} -> {snippet}"
+        return f"ответы на вопросы: {prefix} -> {snippet}"
 
     def _build_force_context(self, segment: TranscriptSegment) -> str:
         context = self.raw_buffer.recent_text(max_items=20)
@@ -541,18 +486,9 @@ class TriggerOrchestrator:
             if (now - self.last_force_answer_ts) < self.force_answer_min_interval_sec:
                 return False
 
-        # Для профиля "я кандидат" режим должен быть максимально надежным:
-        # генерируем ответ почти на каждую содержательную реплику.
-        # В онлайне сегменты приходят как THEM, в офлайн-режиме (mic-only) — как ME.
-        if self.profile.id == "interview_candidate":
-            return True
-
-        # В офлайн-режиме (mic-only) сегменты приходят как ME.
-        # В force-режиме отвечаем на вопросоподобные реплики пользователя.
-        if segment.speaker == "ME":
-            return self._looks_like_force_prompt(segment.text)
-
-        return self._looks_like_force_prompt(segment.text)
+        # В force-answer режиме отвечаем на любую содержательную реплику
+        # от любого спикера (ME или THEM) — пользователь явно запросил помощь.
+        return True
 
     def _should_emit_force_cards_on_mic_end(self) -> bool:
         if self.paused or self.mic_speaking:

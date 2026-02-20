@@ -12,6 +12,11 @@ public final class WhisperKitProvider: ASRProvider {
 
     private let activeProvider: ASRProvider
 
+    /// Доступ к внутреннему SpeechASRProvider для передачи аудио-буферов
+    public var speechProvider: SpeechASRProvider? {
+        activeProvider as? SpeechASRProvider
+    }
+
     public init() {
         // В локальном контуре используем реальное распознавание через Speech framework.
         // Мок-режим можно включить вручную переменной окружения AIMC_ASR_MOCK=1.

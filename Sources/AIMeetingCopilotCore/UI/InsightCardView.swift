@@ -13,6 +13,10 @@ public struct InsightCardView: View {
     private let surfaceColor = Color(red: 0.98, green: 0.93, blue: 0.83)
     private let borderColor = Color(red: 0.76, green: 0.63, blue: 0.43)
 
+    private var isDirectAnswer: Bool {
+        card.cardMode == "direct_answer"
+    }
+
     public init(
         card: InsightCard,
         collapsed: Bool,
@@ -30,9 +34,9 @@ public struct InsightCardView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Заголовок: агент + кнопка закрытия
-            HStack {
+        VStack(alignment: .leading, spacing: 6) {
+            // Заголовок
+            HStack(spacing: 6) {
                 Text(card.agentName ?? "Оркестратор")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(secondaryTextColor)
@@ -42,9 +46,14 @@ public struct InsightCardView: View {
                     .font(.caption)
                     .foregroundStyle(secondaryTextColor)
                 Spacer()
-                Button {
-                    onClose()
-                } label: {
+                Button { onDetach() } label: {
+                    Image(systemName: "rectangle.portrait.and.arrow.forward")
+                        .font(.caption2)
+                        .foregroundStyle(secondaryTextColor)
+                }
+                .buttonStyle(.plain)
+                .help("Открыть в отдельном окне")
+                Button { onClose() } label: {
                     Image(systemName: "xmark")
                         .font(.caption2)
                         .foregroundStyle(secondaryTextColor)
@@ -52,38 +61,31 @@ public struct InsightCardView: View {
                 .buttonStyle(.plain)
             }
 
-            if collapsed {
-                // Свёрнутый режим: одна строка
-                Text(card.replyConfident)
-                    .font(.body)
-                    .lineLimit(2)
-                    .foregroundStyle(primaryTextColor)
-                    .textSelection(.enabled)
+            if isDirectAnswer {
+                // Режим "Ответы на вопросы" — полный ответ LLM
+                SelectableTextView(
+                    text: card.insight,
+                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    textColor: NSColor(primaryTextColor)
+                )
+            } else if collapsed {
+                SelectableTextView(
+                    text: card.replyConfident,
+                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    textColor: NSColor(primaryTextColor)
+                )
             } else {
-                // Развёрнутый режим: полный ответ LLM
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(card.insight)
-                            .font(.body)
-                            .foregroundStyle(primaryTextColor)
-                            .textSelection(.enabled)
-
-                        Divider()
-
-                        Text("Рекомендация:")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(secondaryTextColor)
-                        Text(card.replyConfident)
-                            .font(.body)
-                            .foregroundStyle(primaryTextColor)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                let combinedText = card.insight
+                    + (card.replyConfident.isEmpty ? "" : "\n\n— Рекомендация —\n\(card.replyConfident)")
+                SelectableTextView(
+                    text: combinedText,
+                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    textColor: NSColor(primaryTextColor)
+                )
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 180, alignment: .topLeading)
         .background(surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(

@@ -40,8 +40,12 @@ public struct ContentView: View {
         .preferredColorScheme(.light)
         .sheet(isPresented: $showProfileEditor) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Параметры профиля")
-                    .font(.title3.weight(.semibold))
+                HStack {
+                    Text("Параметры профиля")
+                        .font(.title3.weight(.semibold))
+                    Spacer()
+                    Button("Закрыть") { showProfileEditor = false }
+                }
                 Text(ProfileOption.title(for: viewModel.selectedProfileID))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -53,8 +57,12 @@ public struct ContentView: View {
         }
         .sheet(isPresented: $showExcludeEditor) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Исключения триггеров")
-                    .font(.title3.weight(.semibold))
+                HStack {
+                    Text("Исключения триггеров")
+                        .font(.title3.weight(.semibold))
+                    Spacer()
+                    Button("Закрыть") { showExcludeEditor = false }
+                }
                 Text(ProfileOption.title(for: viewModel.selectedProfileID))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -133,6 +141,11 @@ public struct ContentView: View {
                     .buttonStyle(.plain)
                 }
                 .navigationTitle("Последние 50 карточек")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Закрыть") { showLast50Cards = false }
+                    }
+                }
             }
             .frame(minWidth: 760, minHeight: 560)
             .onAppear {
@@ -151,6 +164,7 @@ public struct ContentView: View {
                             Text(card.insight)
                                 .font(.subheadline)
                                 .lineLimit(2)
+                                .textSelection(.enabled)
                             Text(card.triggerReason)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -159,6 +173,11 @@ public struct ContentView: View {
                     .buttonStyle(.plain)
                 }
                 .navigationTitle(selectedSessionTitle)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Закрыть") { showSessionCards = false }
+                    }
+                }
             }
             .frame(minWidth: 760, minHeight: 560)
         }
@@ -231,8 +250,8 @@ public struct ContentView: View {
 
             controls
             Text(viewModel.profileSettings.forceAnswerMode
-                 ? "Режим принудительных ответов активен: работают 2 потока (оркестратор + прямой LLM в карточку «Принудительный ответ»)."
-                 : "Режим принудительных ответов выключен.")
+                 ? "Ответы на вопросы: ВКЛ — LLM анализирует реплики и даёт рекомендации в реальном времени."
+                 : "Ответы на вопросы: ВЫКЛ.")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(viewModel.profileSettings.forceAnswerMode ? Color(red: 0.33, green: 0.20, blue: 0.13) : .secondary)
             Text(viewModel.startGuideText)
@@ -341,7 +360,7 @@ public struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(Color(red: 0.44, green: 0.56, blue: 0.31))
-            .disabled(!viewModel.onboardingReady || viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
 
             Button("Пауза") {
                 viewModel.pauseCapture()
@@ -373,8 +392,8 @@ public struct ContentView: View {
             .disabled(viewModel.sessionState != .capturing)
 
             Button(viewModel.profileSettings.forceAnswerMode
-                   ? "Принудительные ответы: ВКЛ"
-                   : "Принудительные ответы: ВЫКЛ") {
+                   ? "Ответы на вопросы: ВКЛ"
+                   : "Ответы на вопросы: ВЫКЛ") {
                 viewModel.toggleForceAnswerMode()
             }
             .buttonStyle(.borderedProminent)

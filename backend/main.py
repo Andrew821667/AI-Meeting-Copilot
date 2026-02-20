@@ -279,10 +279,14 @@ class SessionRuntime:
 class BackendServer:
     def __init__(self, exports_dir: Path) -> None:
         self.runtime = SessionRuntime(exports_dir=exports_dir)
+        self._writer: asyncio.StreamWriter | None = None
+        self._write_lock = asyncio.Lock()
+        self._bg_tasks: set[asyncio.Task] = set()
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
         logger.info("Клиент подключен: %s", peer)
+        self._writer = writer
         try:
             while not reader.at_eof():
                 line = await reader.readline()
@@ -345,9 +349,7 @@ class BackendServer:
         elif msg_type == "mic_event":
             event = MicEvent(**payload)
             cards = await self.runtime.orchestrator.on_mic_event(event)
-            if self.runtime.profile.force_answer_mode:
-                direct_cards = await self.runtime.orchestrator.on_direct_force_answer_mic_event(event)
-                cards.extend(direct_cards)
+            # Direct force mic path убран: on_transcript_segment уже генерирует ответы.
             outbound.extend(self._wrap_cards(cards))
         elif msg_type == "transcript_segment":
             seg = TranscriptSegment(**payload)
@@ -357,13 +359,28 @@ class BackendServer:
             )
             if seg.isFinal:
                 self.runtime.transcript.append(seg)
-            cards = await self.runtime.orchestrator.on_transcript_segment(seg)
-            if self.runtime.profile.force_answer_mode:
-                direct_cards = await self.runtime.orchestrator.on_direct_force_answer_segment(seg)
-                cards.extend(direct_cards)
-            if cards:
-                logger.debug("cards generated: %d [%s]", len(cards), ", ".join(c.agent_name for c in cards))
-            outbound.extend(self._wrap_cards(cards))
+
+            # В force mode генерируем ответ LLM в фоне, чтобы не блокировать транскрипцию.
+            orch = self.runtime.orchestrator
+            logger.info("SEGMENT: force_mode=%s should_force=%s final=%s speaker=%s text='%.60s'",
+                        orch.force_answer_mode, orch._should_force_answer(seg),
+                        seg.isFinal, seg.speaker, seg.text[:60])
+            if orch.force_answer_mode and orch._should_force_answer(seg):
+                # Сохраняем в буферы сразу (синхронно)
+                orch._ingest_segment_to_buffers(seg)
+                orch.last_force_answer_ts = time.monotonic()
+                if seg.isFinal:
+                    orch.force_answer_seen_utterances.append(seg.utteranceId)
+
+                # Запускаем LLM в фоне
+                task = asyncio.create_task(self._bg_force_answer(seg))
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
+            else:
+                cards = await orch.on_transcript_segment(seg)
+                if cards:
+                    logger.debug("cards generated: %d [%s]", len(cards), ", ".join(c.agent_name for c in cards))
+                outbound.extend(self._wrap_cards(cards))
         elif msg_type == "panic_capture":
             cards = await self.runtime.orchestrator.on_manual_capture()
             outbound.extend(self._wrap_cards(cards))
@@ -402,10 +419,47 @@ class BackendServer:
             outbound.append(build_runtime_error("unknown_event", f"Неизвестный тип события: {msg_type}"))
         return outbound
 
+    async def _bg_force_answer(self, seg: TranscriptSegment) -> None:
+        """Фоновая генерация ответа LLM — не блокирует основной цикл обработки сообщений."""
+        try:
+            orch = self.runtime.orchestrator
+            context = orch._build_force_context(seg)
+            trigger_reason = orch._build_force_answer_reason(seg)
+            logger.info("BG_FORCE: question_text='%s' context_len=%d context_preview='%.120s'",
+                        seg.text[:100], len(context), context[:120])
+            result = await orch.llm.build_answer_card(
+                scenario=orch.profile.id,
+                speaker=seg.speaker,
+                trigger_reason=trigger_reason,
+                context=context,
+                question_text=seg.text,
+                source_ts_end=seg.tsEnd,
+            )
+            card = result.card
+            card.id = orch._slot_card_id(card.agent_name)
+            logger.info("BG_FORCE_ANSWER: latency=%.0fms timed_out=%s insight=%.80s",
+                        result.latency_ms, result.timed_out, card.insight)
+            orch.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
+            orch.telemetry.on_card_shown(card, shown_ts=seg.tsEnd)
+            await self._send_cards_async([card])
+        except Exception:
+            logger.exception("Ошибка фоновой генерации force-answer")
+
     async def _write_packets(self, writer: asyncio.StreamWriter, packets: list[dict]) -> None:
-        for packet in packets:
-            writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
-        await writer.drain()
+        async with self._write_lock:
+            for packet in packets:
+                writer.write((json.dumps(packet, ensure_ascii=False) + "\n").encode("utf-8"))
+            await writer.drain()
+
+    async def _send_cards_async(self, cards: list) -> None:
+        """Отправить карточки клиенту из фоновой задачи."""
+        if not cards or not self._writer:
+            return
+        try:
+            packets = self._wrap_cards(cards)
+            await self._write_packets(self._writer, packets)
+        except Exception:
+            logger.exception("Ошибка отправки фоновых карточек")
 
     async def _handle_session_control(self, payload: dict) -> list[dict]:
         event = payload.get("event")
