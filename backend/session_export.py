@@ -19,6 +19,7 @@ def export_session_json(
     metrics: dict,
     settings: dict,
     audio_paths: dict | None = None,
+    diarization_metadata: dict | None = None,
 ) -> Path:
     exports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -35,6 +36,8 @@ def export_session_json(
     }
     if audio_paths:
         payload["audio_paths"] = audio_paths
+    if diarization_metadata:
+        payload["diarization_metadata"] = diarization_metadata
 
     target = exports_dir / f"{session_id}.json"
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -242,6 +242,37 @@ class SessionRuntime:
         self.active = False
         self.ended_at = time.time()
 
+        # Post-diarization for group mode
+        diarization_metadata = None
+        system_wav = (audio_paths or {}).get("system_audio_path")
+        if self.meeting_sub_mode == "group" and system_wav:
+            try:
+                from dataclasses import asdict
+                from post_diarizer import rediarize_session
+                transcript_dicts = [asdict(s) for s in self.transcript]
+                updated, diarization_metadata = rediarize_session(system_wav, transcript_dicts)
+                # Update transcript segments with new speaker labels
+                for i, seg in enumerate(self.transcript):
+                    if i < len(updated):
+                        new_speaker = updated[i].get("speaker", seg.speaker)
+                        if new_speaker != seg.speaker:
+                            from models import TranscriptSegment as TS
+                            self.transcript[i] = TS(
+                                schemaVersion=seg.schemaVersion,
+                                seq=seg.seq,
+                                utteranceId=seg.utteranceId,
+                                isFinal=seg.isFinal,
+                                speaker=new_speaker,
+                                text=seg.text,
+                                tsStart=seg.tsStart,
+                                tsEnd=seg.tsEnd,
+                                speakerConfidence=seg.speakerConfidence,
+                            )
+                logger.info("Post-diarization applied: %s", diarization_metadata)
+            except Exception:
+                logger.exception("Post-diarization failed")
+                diarization_metadata = {"error": "post_diarization_failed"}
+
         meeting_memory = self.orchestrator.meeting_memory_snapshot(ended_ts=self.ended_at, cards=self.cards)
         metrics = self.telemetry.build_metrics()
 
@@ -257,6 +288,7 @@ class SessionRuntime:
             metrics=metrics,
             settings=self.profile_settings,
             audio_paths=audio_paths,
+            diarization_metadata=diarization_metadata,
         )
 
         report_md = build_markdown_report(
