@@ -65,6 +65,9 @@ public final class SystemSpeechASRProvider: ASRProvider {
     private var systemInput: ScreenAudioInput?
     private var isRestartingRecognition = false
 
+    /// Callback для получения сырого CMSampleBuffer системного аудио (для записи и диаризации).
+    public var onRawSystemAudioBuffer: (@Sendable (CMSampleBuffer) -> Void)?
+
     private var startedAt: TimeInterval = 0
     private var currentUtteranceID = UUID().uuidString
     private var lastFinalTs: Double = 0
@@ -109,6 +112,7 @@ public final class SystemSpeechASRProvider: ASRProvider {
         try startRecognitionTask(using: recognizer)
 
         let input = ScreenAudioInput(requestBridge: requestBridge)
+        input.onRawSampleBuffer = onRawSystemAudioBuffer
         do {
             try await input.start()
         } catch {
@@ -261,6 +265,9 @@ private final class ScreenAudioInput: NSObject, SCStreamOutput, @unchecked Senda
     private let queue = DispatchQueue(label: "ai.meeting.copilot.system-speech-input")
     private var stream: SCStream?
 
+    /// Callback для передачи сырого CMSampleBuffer наружу (запись, диаризация).
+    var onRawSampleBuffer: (@Sendable (CMSampleBuffer) -> Void)?
+
     init(requestBridge: RecognitionRequestBridge) {
         self.requestBridge = requestBridge
         super.init()
@@ -300,6 +307,7 @@ private final class ScreenAudioInput: NSObject, SCStreamOutput, @unchecked Senda
         guard type == .audio else { return }
         guard CMSampleBufferIsValid(sampleBuffer), CMSampleBufferDataIsReady(sampleBuffer) else { return }
         requestBridge.append(sampleBuffer: sampleBuffer)
+        onRawSampleBuffer?(sampleBuffer)
     }
 }
 #else

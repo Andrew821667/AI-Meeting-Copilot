@@ -18,6 +18,7 @@ def export_session_json(
     meeting_memory: dict,
     metrics: dict,
     settings: dict,
+    audio_paths: dict | None = None,
 ) -> Path:
     exports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -32,6 +33,8 @@ def export_session_json(
         "metrics": metrics,
         "settings": settings,
     }
+    if audio_paths:
+        payload["audio_paths"] = audio_paths
 
     target = exports_dir / f"{session_id}.json"
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -221,7 +221,7 @@ class SessionRuntime:
         self.orchestrator.update_profile(self.profile)
         return was_force_mode, bool(self.profile.force_answer_mode)
 
-    def end(self) -> dict:
+    def end(self, audio_paths: dict | None = None) -> dict:
         self.active = False
         self.ended_at = time.time()
 
@@ -239,6 +239,7 @@ class SessionRuntime:
             meeting_memory=meeting_memory,
             metrics=metrics,
             settings=self.profile_settings,
+            audio_paths=audio_paths,
         )
 
         report_md = build_markdown_report(
@@ -481,7 +482,14 @@ class BackendServer:
             return [{"type": "session_ack", "payload": {"event": "resume", "session_id": self.runtime.session_id}}]
 
         if event == "end":
-            summary = self.runtime.end()
+            # Извлекаем пути к аудиофайлам из profile_overrides
+            audio_paths = {}
+            if profile_overrides:
+                if profile_overrides.get("mic_audio_path"):
+                    audio_paths["mic_audio_path"] = profile_overrides["mic_audio_path"]
+                if profile_overrides.get("system_audio_path"):
+                    audio_paths["system_audio_path"] = profile_overrides["system_audio_path"]
+            summary = self.runtime.end(audio_paths=audio_paths)
             return [{"type": "session_summary", "payload": summary}]
 
         if event == "profile_update":

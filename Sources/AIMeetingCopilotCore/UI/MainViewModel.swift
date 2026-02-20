@@ -84,6 +84,7 @@ public final class MainViewModel: ObservableObject {
     private var transcriptTask: Task<Void, Never>?
     private var micTranscriptTask: Task<Void, Never>?
     private var systemStateTask: Task<Void, Never>?
+    private let audioRecorder = AudioRecorder()
     private var sessionStartTime: TimeInterval = CACurrentMediaTime()
     private var currentSessionID: UUID?
     private var cancellables = Set<AnyCancellable>()
@@ -556,9 +557,23 @@ public extension MainViewModel {
                     (asrProvider as? WhisperKitProvider)?.speechProvider,
                     micASRProvider as? SpeechASRProvider,
                 ].compactMap { $0 }
+
+                // Запись аудио в WAV
+                let exportsDir = Self.resolveExportsDirectory()
+                audioRecorder.startRecording(sessionID: sessionID.uuidString, exportsDir: exportsDir)
+                let recorder = audioRecorder
+
                 micCaptureService.onAudioBuffer = { buffer in
                     for provider in speechProviders {
                         provider.feedAudioBuffer(buffer)
+                    }
+                    recorder.appendMicBuffer(buffer)
+                }
+
+                // Подключаем запись системного аудио
+                if let systemASR = asrProvider as? SystemSpeechASRProvider {
+                    systemASR.onRawSystemAudioBuffer = { sampleBuffer in
+                        recorder.appendSystemSampleBuffer(sampleBuffer)
                     }
                 }
 
@@ -576,6 +591,7 @@ public extension MainViewModel {
                 stopSystemStateLoop()
                 micCaptureService.stopCapture()
                 systemAudioService.stopCapture()
+                _ = audioRecorder.stopRecording()
                 udsClient.disconnect()
                 await backendProcessManager.stop()
                 try? await stateMachine.endCapture()
@@ -676,17 +692,24 @@ public extension MainViewModel {
             await micASRProvider?.stopStream()
             micASRProvider = nil
             micCaptureService.stopCapture()
+            micCaptureService.onAudioBuffer = nil
             systemAudioService.stopCapture()
             stopSystemStateLoop()
 
+            // Останавливаем запись и получаем пути к файлам
+            let audioPaths = audioRecorder.stopRecording()
+
             if let currentSessionID {
+                var overrides = profileSettings
+                overrides.micAudioPath = audioPaths.micPath
+                overrides.systemAudioPath = audioPaths.systemPath
                 try? await udsClient.send(
                     type: "session_control",
                     payload: SessionControlPayload(
                         event: "end",
                         sessionID: currentSessionID.uuidString,
                         profile: selectedProfileID,
-                        profileOverrides: nil
+                        profileOverrides: overrides
                     )
                 )
             }
@@ -929,6 +952,14 @@ private extension MainViewModel {
         }
 
         replaceRecent(card)
+    }
+
+    static func resolveExportsDirectory() -> URL {
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
+            return root.appendingPathComponent("exports", isDirectory: true)
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("exports")
     }
 
     func makeASRProvider(optionID: String, captureMode: CaptureSourceMode) -> ASRProvider {
