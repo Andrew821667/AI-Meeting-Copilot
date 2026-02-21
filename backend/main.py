@@ -469,28 +469,44 @@ class BackendServer:
         return outbound
 
     async def _bg_force_answer(self, seg: TranscriptSegment) -> None:
-        """Фоновая генерация ответа LLM — не блокирует основной цикл обработки сообщений."""
+        """Фоновая генерация ответа LLM со стримингом — текст появляется по частям."""
         try:
             orch = self.runtime.orchestrator
             context = orch._build_force_context(seg)
             trigger_reason = orch._build_force_answer_reason(seg)
-            result = await orch.llm.build_answer_card(
+
+            async def send_intermediate(card):
+                card.id = orch._slot_card_id(card.agent_name)
+                await self._send_cards_async([card])
+
+            result = await orch.llm.stream_build_answer_card(
                 scenario=orch.profile.id,
                 speaker=seg.speaker,
                 trigger_reason=trigger_reason,
                 context=context,
                 question_text=seg.text,
                 source_ts_end=seg.tsEnd,
+                on_card=send_intermediate,
             )
             card = result.card
             card.id = orch._slot_card_id(card.agent_name)
-            logger.info("BG_FORCE_ANSWER: latency=%.0fms timed_out=%s insight=%.80s",
+            logger.info("BG_FORCE_ANSWER_STREAM: latency=%.0fms timed_out=%s insight=%.80s",
                         result.latency_ms, result.timed_out, card.insight)
             orch.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)
             orch.telemetry.on_card_shown(card, shown_ts=seg.tsEnd)
-            await self._send_cards_async([card])
         except Exception:
             logger.exception("Ошибка фоновой генерации force-answer")
+
+    async def _warmup_ollama(self) -> None:
+        """Прогрев Ollama: загружает модель в RAM при первом запросе."""
+        try:
+            logger.info("Ollama warmup: loading model...")
+            await self.runtime.orchestrator.llm.transport.generate_text(
+                prompt="test", system="Reply OK.", timeout_sec=60.0,
+            )
+            logger.info("Ollama warmup: model loaded successfully")
+        except Exception:
+            logger.exception("Ollama warmup failed")
 
     async def _write_packets(self, writer: asyncio.StreamWriter, packets: list[dict]) -> None:
         async with self._write_lock:
@@ -546,10 +562,14 @@ class BackendServer:
         if event == "start":
             self.runtime.start(session_id=session_id, profile=profile, profile_overrides=profile_overrides)
             packets = [{"type": "session_ack", "payload": {"event": "start", "session_id": session_id}}]
-            logger.info("Session started: profile=%s force_mode=%s", profile, self.runtime.profile.force_answer_mode)
+            logger.info("Session started: profile=%s force_mode=%s llm=%s", profile, self.runtime.profile.force_answer_mode, self.runtime.profile.llm_provider)
             if self.runtime.profile.force_answer_mode:
                 cards = await self.runtime.orchestrator.on_force_mode_activated()
                 packets.extend(self._wrap_cards(cards))
+            if self.runtime.profile.llm_provider == "ollama":
+                task = asyncio.create_task(self._warmup_ollama())
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
             return packets
 
         if event == "pause":

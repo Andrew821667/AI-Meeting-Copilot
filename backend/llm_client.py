@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 
 from models import InsightCard
+
+logger = logging.getLogger(__name__)
 
 try:
     from openai import AsyncOpenAI  # type: ignore
@@ -88,6 +92,30 @@ class DeepSeekTransport(LLMTransport):
         )
         return (response.choices[0].message.content or "").strip()
 
+    async def stream_generate_text(
+        self, *, prompt: str, system: str, timeout_sec: float
+    ) -> AsyncIterator[str]:
+        """Streaming text generation — yields accumulated text after each chunk."""
+        stream = await asyncio.wait_for(
+            self.client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            ),
+            timeout=timeout_sec,
+        )
+        accumulated = ""
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                accumulated += delta
+                yield accumulated
+
     @staticmethod
     def _extract_json_text(raw: str) -> str:
         text = raw.strip()
@@ -131,6 +159,30 @@ class RealtimeLLMClient:
             )
             return cls(timeout_sec=timeout_sec, transport=transport)
         except Exception:
+            return cls(timeout_sec=timeout_sec, transport=None)
+
+    @classmethod
+    def from_ollama_env(cls, timeout_sec: float = 30.0) -> "RealtimeLLMClient":
+        """Create LLM client for local Ollama (OpenAI-compatible API)."""
+        base_url = os.environ.get(
+            "AIMC_OLLAMA_BASE_URL", "http://localhost:11434/v1/"
+        ).strip() or "http://localhost:11434/v1/"
+        model = os.environ.get(
+            "AIMC_OLLAMA_MODEL", "qwen2.5-coder:7b"
+        ).strip() or "qwen2.5-coder:7b"
+        max_tokens = cls._safe_int_env("AIMC_OLLAMA_MAX_TOKENS", default=450, min_value=64, max_value=4096)
+
+        try:
+            transport = DeepSeekTransport(
+                api_key="ollama",
+                model=model,
+                base_url=base_url,
+                temperature=0.2,
+                max_tokens=max_tokens,
+            )
+            return cls(timeout_sec=timeout_sec, transport=transport)
+        except Exception:
+            logger.warning("Failed to create Ollama transport, using local fallback")
             return cls(timeout_sec=timeout_sec, transport=None)
 
     @staticmethod
@@ -212,85 +264,150 @@ class RealtimeLLMClient:
     ) -> LLMCallResult:
         """Генерирует карточку с прямым развёрнутым ответом на вопрос (как ChatGPT)."""
         started = time.perf_counter()
+        card_kwargs = dict(
+            scenario=scenario, speaker=speaker, trigger_reason=trigger_reason,
+            source_ts_end=source_ts_end, agent_name=agent_name,
+        )
         try:
             if self.transport is None or not hasattr(self.transport, "generate_text"):
                 await asyncio.sleep(0.15)
                 answer = f"(LLM недоступен) Контекст: {context.strip().splitlines()[-1][:200] if context.strip() else 'нет контекста'}"
             else:
-                system_prompt = (
-                    "Ты — экспертный ассистент. Тебе передают фрагмент разговора и вопрос/реплику. "
-                    "Дай развёрнутый, полезный ответ на вопрос или реплику. "
-                    "Отвечай по сути, как ChatGPT — структурированно, с примерами если уместно. "
-                    "Не упоминай что ты ассистент встреч. "
-                    "Просто дай качественный ответ на вопрос."
-                )
-                # Формируем промпт с чистым текстом вопроса
-                parts = []
-                if context.strip():
-                    parts.append(f"Контекст разговора:\n{context}")
-                q = question_text.strip() if question_text else ""
-                if q:
-                    parts.append(f"Вопрос/реплика: {q}")
-                else:
-                    parts.append("Ответь на последнюю реплику из контекста выше.")
-                prompt = "\n\n".join(parts)
+                system_prompt, prompt = self._build_answer_prompt(context, question_text)
                 answer = await asyncio.wait_for(
                     self.transport.generate_text(
-                        prompt=prompt,
-                        system=system_prompt,
-                        timeout_sec=self.timeout_sec,
+                        prompt=prompt, system=system_prompt, timeout_sec=self.timeout_sec,
                     ),
                     timeout=self.timeout_sec,
                 )
-            card = InsightCard(
-                id=str(uuid.uuid4()),
-                scenario=scenario,
-                card_mode="direct_answer",
-                trigger_reason=trigger_reason,
-                insight=answer,
-                reply_cautious="",
-                reply_confident="",
-                severity="info",
-                timestamp=asyncio.get_running_loop().time(),
-                speaker=speaker,
-                agent_name=agent_name,
-                is_fallback=False,
-                source_ts_end=source_ts_end,
-            )
+            card = self._make_answer_card(answer, **card_kwargs)
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
         except asyncio.TimeoutError:
-            card = InsightCard(
-                id=str(uuid.uuid4()),
-                scenario=scenario,
-                card_mode="direct_answer",
-                trigger_reason=trigger_reason,
-                insight="Превышено время ожидания LLM. Попробуйте повторить вопрос.",
-                reply_cautious="",
-                reply_confident="",
-                severity="warning",
-                timestamp=asyncio.get_running_loop().time(),
-                speaker=speaker,
-                agent_name=agent_name,
-                is_fallback=True,
-                source_ts_end=source_ts_end,
+            card = self._make_answer_card(
+                "Превышено время ожидания LLM. Попробуйте повторить вопрос.",
+                **card_kwargs, is_fallback=True, severity="warning",
             )
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=True)
         except Exception:
-            card = InsightCard(
-                id=str(uuid.uuid4()),
-                scenario=scenario,
-                card_mode="direct_answer",
-                trigger_reason=trigger_reason,
-                insight="Ошибка при обращении к LLM.",
-                reply_cautious="",
-                reply_confident="",
-                severity="warning",
-                timestamp=asyncio.get_running_loop().time(),
-                speaker=speaker,
-                agent_name=agent_name,
-                is_fallback=True,
-                source_ts_end=source_ts_end,
+            card = self._make_answer_card(
+                "Ошибка при обращении к LLM.",
+                **card_kwargs, is_fallback=True, severity="warning",
             )
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
+
+    def _make_answer_card(
+        self,
+        text: str,
+        *,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        source_ts_end: float,
+        agent_name: str,
+        is_fallback: bool = False,
+        severity: str = "info",
+    ) -> InsightCard:
+        return InsightCard(
+            id=str(uuid.uuid4()),
+            scenario=scenario,
+            card_mode="direct_answer",
+            trigger_reason=trigger_reason,
+            insight=text,
+            reply_cautious="",
+            reply_confident="",
+            severity=severity,
+            timestamp=asyncio.get_running_loop().time(),
+            speaker=speaker,
+            agent_name=agent_name,
+            is_fallback=is_fallback,
+            source_ts_end=source_ts_end,
+        )
+
+    def _build_answer_prompt(self, context: str, question_text: str) -> tuple[str, str]:
+        """Returns (system_prompt, user_prompt) for answer card generation."""
+        system_prompt = (
+            "Ты — экспертный ассистент. Тебе передают фрагмент разговора и вопрос/реплику. "
+            "Дай развёрнутый, полезный ответ на вопрос или реплику. "
+            "Отвечай по сути, как ChatGPT — структурированно, с примерами если уместно. "
+            "Не упоминай что ты ассистент встреч. "
+            "Просто дай качественный ответ на вопрос."
+        )
+        parts = []
+        if context.strip():
+            parts.append(f"Контекст разговора:\n{context}")
+        q = question_text.strip() if question_text else ""
+        if q:
+            parts.append(f"Вопрос/реплика: {q}")
+        else:
+            parts.append("Ответь на последнюю реплику из контекста выше.")
+        return system_prompt, "\n\n".join(parts)
+
+    async def stream_build_answer_card(
+        self,
+        *,
+        scenario: str,
+        speaker: str,
+        trigger_reason: str,
+        context: str,
+        question_text: str = "",
+        source_ts_end: float,
+        agent_name: str = "Ответы на вопросы",
+        on_card: Callable[[InsightCard], Awaitable[None]],
+    ) -> LLMCallResult:
+        """Streaming version of build_answer_card — calls on_card with progressive updates."""
+        started = time.perf_counter()
+        card_kwargs = dict(
+            scenario=scenario, speaker=speaker, trigger_reason=trigger_reason,
+            source_ts_end=source_ts_end, agent_name=agent_name,
+        )
+        try:
+            if self.transport is None or not hasattr(self.transport, "stream_generate_text"):
+                # Fallback to non-streaming
+                return await self.build_answer_card(
+                    scenario=scenario, speaker=speaker, trigger_reason=trigger_reason,
+                    context=context, question_text=question_text,
+                    source_ts_end=source_ts_end, agent_name=agent_name,
+                )
+
+            system_prompt, prompt = self._build_answer_prompt(context, question_text)
+            last_send_ts = 0.0
+            throttle_interval = 0.3
+            accumulated = ""
+
+            async for accumulated in self.transport.stream_generate_text(
+                prompt=prompt, system=system_prompt, timeout_sec=self.timeout_sec,
+            ):
+                now = time.perf_counter()
+                if (now - last_send_ts) >= throttle_interval:
+                    card = self._make_answer_card(accumulated + " ...", **card_kwargs)
+                    await on_card(card)
+                    last_send_ts = now
+
+            # Send final card (without "...")
+            if not accumulated:
+                accumulated = "LLM вернул пустой ответ."
+            final_card = self._make_answer_card(accumulated, **card_kwargs)
+            await on_card(final_card)
+            return LLMCallResult(
+                card=final_card,
+                latency_ms=(time.perf_counter() - started) * 1000,
+                timed_out=False,
+            )
+
+        except asyncio.TimeoutError:
+            card = self._make_answer_card(
+                "Превышено время ожидания LLM. Попробуйте повторить вопрос.",
+                **card_kwargs, is_fallback=True, severity="warning",
+            )
+            await on_card(card)
+            return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=True)
+        except Exception:
+            logger.exception("Error in stream_build_answer_card")
+            card = self._make_answer_card(
+                "Ошибка при обращении к LLM.",
+                **card_kwargs, is_fallback=True, severity="warning",
+            )
+            await on_card(card)
             return LLMCallResult(card=card, latency_ms=(time.perf_counter() - started) * 1000, timed_out=False)
 
     async def _generate_card(

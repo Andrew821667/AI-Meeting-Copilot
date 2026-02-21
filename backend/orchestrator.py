@@ -39,7 +39,7 @@ class TriggerOrchestrator:
         self.profile = profile
         self.raw_buffer = RawBuffer(max_duration_sec=300)
         self.scorer = TriggerScorer(profile)
-        self.llm = RealtimeLLMClient.from_env(timeout_sec=15.0)
+        self.llm = self._create_llm_client(profile)
         self.telemetry = telemetry or TelemetryCollector()
 
         self.mic_speaking = False
@@ -68,10 +68,19 @@ class TriggerOrchestrator:
     def set_paused(self, value: bool) -> None:
         self.paused = value
 
+    @staticmethod
+    def _create_llm_client(profile: Profile) -> RealtimeLLMClient:
+        if profile.llm_provider == "ollama":
+            return RealtimeLLMClient.from_ollama_env()
+        return RealtimeLLMClient.from_env(timeout_sec=15.0)
+
     def update_profile(self, profile: Profile) -> None:
+        old_provider = self.profile.llm_provider
         self.profile = profile
         self.scorer = TriggerScorer(profile)
         self.force_answer_mode = profile.force_answer_mode
+        if profile.llm_provider != old_provider:
+            self.llm = self._create_llm_client(profile)
 
     def set_excluded_phrases(self, phrases: set[str]) -> None:
         self.excluded_phrases = set(phrases)
@@ -379,7 +388,7 @@ class TriggerOrchestrator:
         return f"ответы на вопросы: {prefix} -> {snippet}"
 
     def _build_force_context(self, segment: TranscriptSegment) -> str:
-        context = self.raw_buffer.recent_text(max_items=20)
+        context = self.raw_buffer.recent_text(max_items=7)
         line = f"{segment.speaker}: {segment.text}".strip()
         if not line:
             return context
@@ -532,7 +541,7 @@ class TriggerOrchestrator:
         return (now - self.last_direct_force_ts) >= max(1.3, self.direct_force_min_interval_sec)
 
     def _build_direct_force_context(self, *, speaker: str, text: str) -> str:
-        context = self.raw_buffer.recent_text(max_items=20)
+        context = self.raw_buffer.recent_text(max_items=7)
         line = f"{speaker}: {text}".strip()
         if not text.strip():
             if context:

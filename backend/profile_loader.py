@@ -32,6 +32,7 @@ class Profile:
     trigger_vocab: list[TriggerRule]
     negative_rules: list[NegativeRule]
     force_answer_mode: bool = False
+    llm_provider: str = "deepseek"
 
 
 def _negotiation() -> Profile:
@@ -214,6 +215,7 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         trigger_vocab=profile.trigger_vocab,
         negative_rules=profile.negative_rules,
         force_answer_mode=bool(overrides.get("force_answer_mode", profile.force_answer_mode)),
+        llm_provider=str(overrides.get("llm_provider", profile.llm_provider) or "deepseek"),
     )
 
 
@@ -228,4 +230,5 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "emotion_enabled": profile.emotion_enabled,
         "semantic_enabled": profile.semantic_enabled,
         "force_answer_mode": profile.force_answer_mode,
+        "llm_provider": profile.llm_provider,
     }

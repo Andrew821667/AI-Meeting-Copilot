@@ -344,6 +344,16 @@ public struct ContentView: View {
                 .frame(maxWidth: 160)
                 .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
             }
+
+            Picker("LLM", selection: Binding(
+                get: { viewModel.profileSettings.llmProvider ?? "deepseek" },
+                set: { viewModel.profileSettings.llmProvider = $0 == "deepseek" ? nil : $0 }
+            )) {
+                Text("DeepSeek API").tag("deepseek")
+                Text("Локальная (Ollama)").tag("ollama")
+            }
+            .frame(maxWidth: 200)
+            .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
         }
     }
 
