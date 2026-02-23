@@ -59,6 +59,7 @@ class TriggerOrchestrator:
         self.force_answer_mode = profile.force_answer_mode
         self.force_answer_seen_utterances: deque[str] = deque(maxlen=200)
         self.last_force_answer_ts = -1_000_000_000.0
+        self.last_force_answer_final_ts = -1_000_000_000.0
         self.force_answer_min_interval_sec = 1.5
         self.direct_force_seen_utterances: deque[str] = deque(maxlen=300)
         self.last_direct_force_ts = -1_000_000_000.0
@@ -492,7 +493,9 @@ class TriggerOrchestrator:
             if len(normalized.split()) < 2:
                 return False
             now = time.monotonic()
-            if (now - self.last_force_answer_ts) < self.force_answer_min_interval_sec:
+            # Финалы проверяют кулдаун только по другим финалам,
+            # чтобы partial-ответы не блокировали полный ответ на вопрос.
+            if (now - self.last_force_answer_final_ts) < self.force_answer_min_interval_sec:
                 return False
 
         # В force-answer режиме отвечаем на любую содержательную реплику

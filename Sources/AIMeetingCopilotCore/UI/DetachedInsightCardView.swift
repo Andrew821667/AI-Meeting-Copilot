@@ -3,6 +3,7 @@ import AppKit
 
 struct DetachedInsightCardView: View {
     let card: InsightCard
+    let fontSize: CGFloat
     let onClose: () -> Void
 
     private let primaryTextColor = Color(red: 0.20, green: 0.13, blue: 0.09)
@@ -28,7 +29,7 @@ struct DetachedInsightCardView: View {
             if card.cardMode == "direct_answer" {
                 SelectableTextView(
                     text: card.insight,
-                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    font: .systemFont(ofSize: fontSize),
                     textColor: NSColor(primaryTextColor)
                 )
                 .padding(.horizontal, 16)
@@ -38,7 +39,7 @@ struct DetachedInsightCardView: View {
                     + (card.replyConfident.isEmpty ? "" : "\n\n— Рекомендация —\n\(card.replyConfident)")
                 SelectableTextView(
                     text: combinedText,
-                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    font: .systemFont(ofSize: fontSize),
                     textColor: NSColor(primaryTextColor)
                 )
                 .padding(.horizontal, 16)

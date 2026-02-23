@@ -113,6 +113,7 @@ public struct ContentView: View {
         .sheet(item: $selectedCardForDetails) { card in
             CardDetailSheetView(
                 card: card,
+                fontSize: viewModel.cardFontSize,
                 onSave: {
                     viewModel.saveCardToDatabase(card)
                 },
@@ -225,19 +226,29 @@ public struct ContentView: View {
         idealHeight: CGFloat,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        content()
-            .padding(10)
-            .frame(minHeight: minHeight, idealHeight: idealHeight, maxHeight: .infinity, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(panelFill.opacity(0.97))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(panelBorder.opacity(0.82), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        VStack(spacing: 0) {
+            content()
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            // Индикатор перетаскивания границы
+            Text("⋯")
+                .font(.system(size: 10))
+                .foregroundStyle(.quaternary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 8)
+        }
+        .frame(minHeight: minHeight, idealHeight: idealHeight, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(panelFill.opacity(0.97))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(panelBorder.opacity(0.82), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var mainTopContent: some View {
@@ -369,6 +380,18 @@ public struct ContentView: View {
                 showExcludeEditor = true
             }
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            HStack(spacing: 2) {
+                Button("A\u{2212}") { viewModel.cardFontSize = max(10, viewModel.cardFontSize - 1) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                Text("\(Int(viewModel.cardFontSize))")
+                    .font(.caption.monospaced())
+                    .frame(width: 22)
+                Button("A+") { viewModel.cardFontSize = min(20, viewModel.cardFontSize + 1) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
         }
     }
 
@@ -436,30 +459,41 @@ public struct ContentView: View {
 
     private var liveTranscript: some View {
         GroupBox("Живая транскрипция") {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(viewModel.transcript) { segment in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("[\(segment.isFinal ? "ФИНАЛ" : "ЧАСТЬ")] \(localizedSpeaker(segment.speaker))")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(speakerColor(segment.speaker))
-                            Text(segment.text)
-                                .font(.body)
-                            Text(String(format: "%.2f - %.2f", segment.tsStart, segment.tsEnd))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(viewModel.transcript) { segment in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("[\(segment.isFinal ? "ФИНАЛ" : "ЧАСТЬ")] \(localizedSpeaker(segment.speaker))")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(speakerColor(segment.speaker))
+                                Text(segment.text)
+                                    .font(.body)
+                                    .textSelection(.enabled)
+                                Text(String(format: "%.2f - %.2f", segment.tsStart, segment.tsEnd))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .id(segment.id)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(
+                                segment.isFinal
+                                    ? Color(red: 0.90, green: 0.95, blue: 0.87)
+                                    : Color(red: 0.94, green: 0.90, blue: 0.84)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .background(
-                            segment.isFinal
-                                ? Color(red: 0.90, green: 0.95, blue: 0.87)
-                                : Color(red: 0.94, green: 0.90, blue: 0.84)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .padding(.vertical, 4)
+                }
+                .onChange(of: viewModel.transcript.count) { _ in
+                    if let last = viewModel.transcript.last {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
-                .padding(.vertical, 4)
             }
         }
     }
@@ -500,6 +534,7 @@ public struct ContentView: View {
                             InsightCardView(
                                 card: card,
                                 collapsed: viewModel.isCardCollapsed,
+                                fontSize: viewModel.cardFontSize,
                                 onPin: { viewModel.togglePin(cardID: card.id) },
                                 onCopy: { viewModel.copyReply(cardID: card.id) },
                                 onDetach: { viewModel.detachCard(cardID: card.id) },

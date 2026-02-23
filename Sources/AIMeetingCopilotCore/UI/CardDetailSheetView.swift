@@ -3,6 +3,7 @@ import AppKit
 
 public struct CardDetailSheetView: View {
     public let card: InsightCard
+    public let fontSize: CGFloat
     public let onSave: () -> Void
     public let onRequestReanalysis: (String) async -> String
 
@@ -12,13 +13,17 @@ public struct CardDetailSheetView: View {
 
     public init(
         card: InsightCard,
+        fontSize: CGFloat = 13.0,
         onSave: @escaping () -> Void,
         onRequestReanalysis: @escaping (String) async -> String
     ) {
         self.card = card
+        self.fontSize = fontSize
         self.onSave = onSave
         self.onRequestReanalysis = onRequestReanalysis
     }
+
+    @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -43,16 +48,18 @@ public struct CardDetailSheetView: View {
                 .padding(.vertical, 4)
                 .background(Color.black.opacity(0.06))
                 .clipShape(Capsule())
+            Button("Закрыть") { dismiss() }
+                .keyboardShortcut(.escape, modifiers: [])
         }
     }
 
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                DetailRow(title: "Триггер", text: card.triggerReason)
-                DetailRow(title: "Инсайт", text: card.insight)
-                DetailRow(title: "Осторожный ответ", text: card.replyCautious)
-                DetailRow(title: "Уверенный ответ", text: card.replyConfident)
+                DetailRow(title: "Триггер", text: card.triggerReason, fontSize: fontSize)
+                DetailRow(title: "Инсайт", text: card.insight, fontSize: fontSize)
+                DetailRow(title: "Осторожный ответ", text: card.replyCautious, fontSize: fontSize)
+                DetailRow(title: "Уверенный ответ", text: card.replyConfident, fontSize: fontSize)
             }
         }
     }
@@ -135,6 +142,7 @@ public struct CardDetailSheetView: View {
 private struct DetailRow: View {
     let title: String
     let text: String
+    var fontSize: CGFloat = 13.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -142,7 +150,7 @@ private struct DetailRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.body)
+                .font(.system(size: fontSize))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }

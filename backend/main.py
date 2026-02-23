@@ -412,11 +412,14 @@ class BackendServer:
 
             # В force mode генерируем ответ LLM в фоне, чтобы не блокировать транскрипцию.
             orch = self.runtime.orchestrator
-            if orch.force_answer_mode and orch._should_force_answer(seg):
+            should_force = orch.force_answer_mode and orch._should_force_answer(seg)
+            if should_force:
                 # Сохраняем в буферы сразу (синхронно)
                 orch._ingest_segment_to_buffers(seg)
-                orch.last_force_answer_ts = time.monotonic()
+                now = time.monotonic()
+                orch.last_force_answer_ts = now
                 if seg.isFinal:
+                    orch.last_force_answer_final_ts = now
                     orch.force_answer_seen_utterances.append(seg.utteranceId)
 
                 # Запускаем LLM в фоне

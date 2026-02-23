@@ -75,6 +75,7 @@ public final class MainViewModel: ObservableObject {
     @Published public var selectedCaptureSourceMode: CaptureSourceMode = .meeting
     @Published public var selectedMeetingSubMode: MeetingSubMode = .oneOnOne
     @Published public var profileSettings: ProfileRuntimeSettings = .defaults(for: "negotiation")
+    @Published public var cardFontSize: CGFloat = 13.0
 
     public let availableProfiles: [ProfileOption] = ProfileOption.all
     public let availableASRProviders: [ASRProviderOption] = ASRProviderOption.all
@@ -995,7 +996,7 @@ public extension MainViewModel {
 
 private extension MainViewModel {
     func performDetach(for card: InsightCard) {
-        let detached = detachedCardWindowManager.detach(card: card) { [weak self] in
+        let detached = detachedCardWindowManager.detach(card: card, fontSize: cardFontSize) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.replaceRecent(card)
             }

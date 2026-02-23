@@ -3,6 +3,7 @@ import SwiftUI
 public struct InsightCardView: View {
     public let card: InsightCard
     public let collapsed: Bool
+    public let fontSize: CGFloat
     public let onPin: () -> Void
     public let onCopy: () -> Void
     public let onDetach: () -> Void
@@ -20,6 +21,7 @@ public struct InsightCardView: View {
     public init(
         card: InsightCard,
         collapsed: Bool,
+        fontSize: CGFloat = 13.0,
         onPin: @escaping () -> Void,
         onCopy: @escaping () -> Void,
         onDetach: @escaping () -> Void,
@@ -27,6 +29,7 @@ public struct InsightCardView: View {
     ) {
         self.card = card
         self.collapsed = collapsed
+        self.fontSize = fontSize
         self.onPin = onPin
         self.onCopy = onCopy
         self.onDetach = onDetach
@@ -65,13 +68,13 @@ public struct InsightCardView: View {
                 // Режим "Ответы на вопросы" — полный ответ LLM
                 SelectableTextView(
                     text: card.insight,
-                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    font: .systemFont(ofSize: fontSize),
                     textColor: NSColor(primaryTextColor)
                 )
             } else if collapsed {
                 SelectableTextView(
                     text: card.replyConfident,
-                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    font: .systemFont(ofSize: fontSize),
                     textColor: NSColor(primaryTextColor)
                 )
             } else {
@@ -79,7 +82,7 @@ public struct InsightCardView: View {
                     + (card.replyConfident.isEmpty ? "" : "\n\n— Рекомендация —\n\(card.replyConfident)")
                 SelectableTextView(
                     text: combinedText,
-                    font: .systemFont(ofSize: NSFont.systemFontSize),
+                    font: .systemFont(ofSize: fontSize),
                     textColor: NSColor(primaryTextColor)
                 )
             }

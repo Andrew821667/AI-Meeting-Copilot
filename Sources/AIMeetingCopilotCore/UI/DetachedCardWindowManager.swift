@@ -15,7 +15,8 @@ public final class DetachedCardWindowManager: NSObject {
         windows.count
     }
 
-    public func detach(card: InsightCard, onClose: @escaping () -> Void) -> Bool {
+    public func detach(card: InsightCard, fontSize: CGFloat = 13.0, onClose: @escaping () -> Void) -> Bool {
+        currentFontSize = fontSize
         let slot = slotKey(for: card)
         if let existing = windows[slot] {
             onCloseHandlers[slot] = onClose
@@ -95,12 +96,14 @@ public final class DetachedCardWindowManager: NSObject {
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
     }
 
+    private var currentFontSize: CGFloat = 13.0
+
     private func apply(card: InsightCard, to window: NSWindow, slotKey: String) {
         window.title = "Карточка — \(card.agentName ?? "Оркестратор")"
         let closeAction: () -> Void = { [weak self] in
             self?.close(slotKey: slotKey)
         }
-        let root = DetachedInsightCardView(card: card, onClose: closeAction)
+        let root = DetachedInsightCardView(card: card, fontSize: currentFontSize, onClose: closeAction)
             .environment(\.colorScheme, .light)
             .preferredColorScheme(.light)
         let hostingView = NSHostingView(rootView: root)
