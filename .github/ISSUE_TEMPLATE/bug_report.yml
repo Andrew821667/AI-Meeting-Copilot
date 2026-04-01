@@ -1,0 +1,71 @@
+name: Bug report
+description: Сообщить о баге, сбое или нестабильном поведении
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за репорт. Чем точнее шаги и окружение, тем быстрее получится воспроизвести и исправить проблему.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Краткое описание
+      description: Что сломалось?
+      placeholder: После нажатия "Начать захват" приложение закрывается.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Перечислите шаги по порядку
+      placeholder: |
+        1. Открыть приложение
+        2. Выбрать режим ...
+        3. Нажать ...
+        4. Получить ошибку ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: Версия macOS
+      placeholder: macOS 14.6.1
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Устройство
+      placeholder: MacBook Pro M4 Pro / Intel Mac mini
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Режим приложения
+      options:
+        - Онлайн-встреча
+        - Офлайн-анализ
+        - Только микрофон
+        - Не уверен
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи, скриншоты, детали
+      description: Прикрепите всё, что поможет диагностике

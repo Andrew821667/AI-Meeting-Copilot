@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Обсуждение идеи или крупного улучшения
+    url: https://github.com/Andrew821667/AI-Meeting-Copilot/discussions
+    about: Используйте Discussions для больших идей, архитектурных обсуждений и предложений по развитию проекта.

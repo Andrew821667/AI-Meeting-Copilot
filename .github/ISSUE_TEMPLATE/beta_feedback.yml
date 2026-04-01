@@ -1,0 +1,38 @@
+name: Beta feedback
+description: UX-обратная связь, идеи и наблюдения из реального использования
+labels:
+  - beta-testing
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Этот шаблон подходит для обратной связи по UX, потокам карточек, транскрипции, онбордингу и общему опыту использования.
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Сценарий использования
+      description: Что именно вы делали?
+      placeholder: Онлайн-собеседование, режим кандидата, включены принудительные ответы.
+    validations:
+      required: true
+  - type: textarea
+    id: worked
+    attributes:
+      label: Что сработало хорошо
+    validations:
+      required: true
+  - type: textarea
+    id: pain
+    attributes:
+      label: Что было неудобно или непонятно
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Что бы вы изменили
+  - type: input
+    id: macos
+    attributes:
+      label: Версия macOS
+      placeholder: macOS 15.0
