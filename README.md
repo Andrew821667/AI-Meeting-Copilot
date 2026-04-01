@@ -1,6 +1,23 @@
 # AI-Meeting-Copilot
 
-macOS-приложение для realtime-подсказок на онлайн-встречах.
+![Status](https://img.shields.io/badge/status-beta-yellow)
+![Swift](https://img.shields.io/badge/Swift-5.9-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+
+## Что это такое
+
+AI Meeting Copilot — нативное macOS-приложение, которое в фоне слушает онлайн-встречу и помогает пользователю короткими подсказками в реальном времени. Оно использует DeepSeek LLM для рекомендаций по ответам и анализу контекста, а также определяет, кто говорит, через diarization на базе Resemblyzer.
+
+## Demo
+
+> Скриншоты будут добавлены перед публичным релизом
+
+## Требования
+
+- macOS 13 Ventura и выше
+- Apple Silicon или Intel Mac
+- DeepSeek API key
 
 ## Текущий статус
 
@@ -9,12 +26,12 @@ macOS-приложение для realtime-подсказок на онлайн-
 - Подключён CI для Python и Swift тестов.
 - Добавлены healthcheck и UDS smoke-тест backend.
 - Добавлены релизные скрипты подписи/notarization macOS.
-- Production-checklist: `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/docs/ops/production-readiness.md`.
+- Production-checklist: `./docs/ops/production-readiness.md`.
 
 ## Быстрый запуск backend (dev)
 
 ```bash
-cd "/Users/andrew/Мои AI проекты/AI-Meeting-Copilot"
+cd .
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -23,7 +40,7 @@ python3 backend/main.py --socket /tmp/aimc.sock --exports-dir exports
 ```
 
 Переменные окружения для DeepSeek:
-- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/backend/.env.example`
+- `./backend/.env.example`
 
 Локально (рекомендуется, без git):
 ```bash
@@ -35,10 +52,16 @@ EOF
 ```
 
 Операционные инструменты:
-- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/smoke_test_backend.sh`
-- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/build_app_bundle.sh`
-- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_preflight.sh`
-- `/Users/andrew/Мои AI проекты/AI-Meeting-Copilot/tools/release_macos.sh`
+- `./tools/smoke_test_backend.sh`
+- `./tools/build_app_bundle.sh`
+- `./tools/release_preflight.sh`
+- `./tools/release_macos.sh`
+
+## Roadmap
+
+- [x] Этапы 0–25: ASR, speaker diarization, LLM, CI/CD, нотаризация macOS
+- [ ] Финальное тестирование и стабилизация
+- [ ] Публичный релиз v1.0
 
 ## Stage artifacts
 - docs/architecture/realtime-boundary.md
