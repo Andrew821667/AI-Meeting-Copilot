@@ -9,7 +9,8 @@ fi
 APP_BUNDLE="$1"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
-TARGET_DIR="$APP_BUNDLE/Contents/Resources/backend"
+RESOURCES_DIR="$APP_BUNDLE/Contents/Resources"
+TARGET_DIR="$RESOURCES_DIR/backend"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
   echo "Ошибка: app bundle не найден: $APP_BUNDLE"
@@ -30,6 +31,8 @@ if command -v pyinstaller >/dev/null 2>&1; then
   echo "Готово: backend_runner -> $TARGET_DIR/backend_runner"
 else
   echo "pyinstaller не найден, копирую python backend как fallback."
-  rsync -a "$BACKEND_DIR/" "$TARGET_DIR/"
+  rsync -a --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' "$BACKEND_DIR/" "$TARGET_DIR/"
+  cp "$ROOT_DIR/requirements.txt" "$RESOURCES_DIR/requirements.txt"
   echo "Готово: backend scripts -> $TARGET_DIR"
+  echo "Готово: requirements.txt -> $RESOURCES_DIR/requirements.txt"
 fi

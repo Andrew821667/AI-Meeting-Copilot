@@ -111,7 +111,30 @@ public actor BackendProcessManager {
             }
         }
 
-        // 3) Dev-режим: находим корень проекта → backend/main.py → venv python.
+        // 3) Bundled Python скрипт: backend исходники в Contents/Resources/backend.
+        // Venv создаётся в Application Support, чтобы переживать пересборки .app
+        // и не ломать code signature.
+        if let resourceRoot = Bundle.main.resourceURL?.path {
+            let bundledScript = (resourceRoot as NSString).appendingPathComponent("backend/main.py")
+            if FileManager.default.fileExists(atPath: bundledScript) {
+                let venvDir = bundleVenvDirectory()
+                let venvPython = (venvDir as NSString).appendingPathComponent("bin/python3")
+                let requirementsPath = (resourceRoot as NSString).appendingPathComponent("requirements.txt")
+
+                if !FileManager.default.isExecutableFile(atPath: venvPython) {
+                    try await setupVenv(venvPath: venvDir, requirementsPath: requirementsPath)
+                }
+
+                guard FileManager.default.isExecutableFile(atPath: venvPython) else {
+                    let python = try resolvePythonExecutable()
+                    return BackendLaunch(executablePath: python, arguments: [bundledScript])
+                }
+
+                return BackendLaunch(executablePath: venvPython, arguments: [bundledScript])
+            }
+        }
+
+        // 4) Dev-режим: находим корень проекта → backend/main.py → venv python.
         let projectRoot = try resolveProjectRoot()
         let backendDir = (projectRoot as NSString).appendingPathComponent("backend")
         let backendScript = (backendDir as NSString).appendingPathComponent("main.py")
@@ -120,11 +143,12 @@ public actor BackendProcessManager {
             throw BackendProcessError.backendScriptNotFound(backendScript)
         }
 
-        let venvPython = (backendDir as NSString).appendingPathComponent(".venv/bin/python3")
+        let venvDir = (backendDir as NSString).appendingPathComponent(".venv")
+        let venvPython = (venvDir as NSString).appendingPathComponent("bin/python3")
+        let requirementsPath = (projectRoot as NSString).appendingPathComponent("requirements.txt")
 
-        // Автосоздание venv если его нет.
         if !FileManager.default.isExecutableFile(atPath: venvPython) {
-            try await setupVenv(backendDir: backendDir)
+            try await setupVenv(venvPath: venvDir, requirementsPath: requirementsPath)
         }
 
         guard FileManager.default.isExecutableFile(atPath: venvPython) else {
@@ -134,6 +158,16 @@ public actor BackendProcessManager {
         }
 
         return BackendLaunch(executablePath: venvPython, arguments: [backendScript])
+    }
+
+    private func bundleVenvDirectory() -> String {
+        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            return appSupport
+                .appendingPathComponent("AIMeetingCopilot", isDirectory: true)
+                .appendingPathComponent("backend-venv", isDirectory: true)
+                .path
+        }
+        return (NSTemporaryDirectory() as NSString).appendingPathComponent("AIMeetingCopilot-backend-venv")
     }
 
     // MARK: - Project Root Discovery
@@ -185,14 +219,15 @@ public actor BackendProcessManager {
 
     // MARK: - Venv Auto-Setup
 
-    private func setupVenv(backendDir: String) async throws {
+    private func setupVenv(venvPath: String, requirementsPath: String) async throws {
         let python = try resolvePythonExecutable()
-        let venvPath = (backendDir as NSString).appendingPathComponent(".venv")
-        let requirementsPath = ((backendDir as NSString)
-            .deletingLastPathComponent as NSString)
-            .appendingPathComponent("requirements.txt")
+        try? FileManager.default.createDirectory(
+            atPath: (venvPath as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
 
-        // python3 -m venv backend/.venv
+        // python3 -m venv <venvPath>
         let venvProcess = Process()
         venvProcess.executableURL = URL(fileURLWithPath: python)
         venvProcess.arguments = ["-m", "venv", venvPath]
