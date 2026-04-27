@@ -146,7 +146,7 @@ class RealtimeLLMClient:
 
         model = os.environ.get("AIMC_DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
         base_url = os.environ.get("AIMC_DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip() or "https://api.deepseek.com"
-        max_tokens = cls._safe_int_env("AIMC_DEEPSEEK_MAX_TOKENS", default=450, min_value=64, max_value=4096)
+        max_tokens = cls._safe_int_env("AIMC_DEEPSEEK_MAX_TOKENS", default=2000, min_value=64, max_value=8192)
         temperature = cls._safe_float_env("AIMC_DEEPSEEK_TEMPERATURE", default=0.2, min_value=0.0, max_value=2.0)
 
         try:
@@ -170,7 +170,7 @@ class RealtimeLLMClient:
         model = os.environ.get(
             "AIMC_OLLAMA_MODEL", "qwen2.5-coder:7b"
         ).strip() or "qwen2.5-coder:7b"
-        max_tokens = cls._safe_int_env("AIMC_OLLAMA_MAX_TOKENS", default=450, min_value=64, max_value=4096)
+        max_tokens = cls._safe_int_env("AIMC_OLLAMA_MAX_TOKENS", default=2000, min_value=64, max_value=8192)
 
         try:
             transport = DeepSeekTransport(
@@ -323,6 +323,24 @@ class RealtimeLLMClient:
             source_ts_end=source_ts_end,
         )
 
+    @staticmethod
+    def _trim_to_complete_sentence(text: str) -> str:
+        # Если LLM упёрся в max_tokens, последнее предложение часто оборвано.
+        # Если в самом конце нет терминатора, обрезаем до последнего терминатора.
+        stripped = text.rstrip()
+        if not stripped:
+            return text
+        terminators = ".!?…»\"')"
+        if stripped[-1] in terminators:
+            return stripped
+        last_idx = max(stripped.rfind(c) for c in ".!?…")
+        if last_idx <= 0:
+            return stripped
+        # Сохраняем терминатор и хвост закрывающих кавычек/скобок, если есть.
+        tail = stripped[last_idx + 1 : last_idx + 3]
+        suffix = "".join(c for c in tail if c in "»\"')")
+        return stripped[: last_idx + 1] + suffix
+
     def _build_answer_prompt(self, context: str, question_text: str) -> tuple[str, str]:
         """Returns (system_prompt, user_prompt) for answer card generation."""
         system_prompt = (
@@ -330,7 +348,9 @@ class RealtimeLLMClient:
             "Дай развёрнутый, полезный ответ на вопрос или реплику. "
             "Отвечай по сути, как ChatGPT — структурированно, с примерами если уместно. "
             "Не упоминай что ты ассистент встреч. "
-            "Просто дай качественный ответ на вопрос."
+            "Просто дай качественный ответ на вопрос. "
+            "ВАЖНО: уложись примерно в 1200 слов и обязательно заверши последнее предложение — "
+            "не обрывай мысль на полуслове."
         )
         parts = []
         if context.strip():
@@ -386,6 +406,7 @@ class RealtimeLLMClient:
             # Send final card (without "...")
             if not accumulated:
                 accumulated = "LLM вернул пустой ответ."
+            accumulated = self._trim_to_complete_sentence(accumulated)
             final_card = self._make_answer_card(accumulated, **card_kwargs)
             await on_card(final_card)
             return LLMCallResult(

@@ -332,6 +332,9 @@ class BackendServer:
         self._writer: asyncio.StreamWriter | None = None
         self._write_lock = asyncio.Lock()
         self._bg_tasks: set[asyncio.Task] = set()
+        self._pause_trigger_task: asyncio.Task | None = None
+        self._pause_trigger_seg: TranscriptSegment | None = None
+        self.pause_trigger_delay_sec: float = 1.5
 
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         peer = writer.get_extra_info("peername")
@@ -421,11 +424,18 @@ class BackendServer:
                 if seg.isFinal:
                     orch.last_force_answer_final_ts = now
                     orch.force_answer_seen_utterances.append(seg.utteranceId)
+                self._cancel_pause_trigger()
 
                 # Запускаем LLM в фоне
                 task = asyncio.create_task(self._bg_force_answer(seg))
                 self._bg_tasks.add(task)
                 task.add_done_callback(self._bg_tasks.discard)
+            elif orch.force_answer_mode and orch.should_pause_trigger(seg):
+                # Apple Speech на непрерывной речи редко выдаёт isFinal, поэтому
+                # ловим конец фразы по тишине: каждый новый partial сбрасывает
+                # таймер, и если за pause_trigger_delay_sec не пришло обновлений —
+                # отвечаем на последний partial.
+                self._reschedule_pause_trigger(seg)
             else:
                 cards = await orch.on_transcript_segment(seg)
                 if cards:
@@ -471,15 +481,50 @@ class BackendServer:
             outbound.append(build_runtime_error("unknown_event", f"Неизвестный тип события: {msg_type}"))
         return outbound
 
+    def _cancel_pause_trigger(self) -> None:
+        if self._pause_trigger_task is not None and not self._pause_trigger_task.done():
+            self._pause_trigger_task.cancel()
+        self._pause_trigger_task = None
+        self._pause_trigger_seg = None
+
+    def _reschedule_pause_trigger(self, seg: TranscriptSegment) -> None:
+        self._cancel_pause_trigger()
+        self._pause_trigger_seg = seg
+        self._pause_trigger_task = asyncio.create_task(self._fire_pause_trigger(seg))
+
+    async def _fire_pause_trigger(self, seg: TranscriptSegment) -> None:
+        try:
+            await asyncio.sleep(self.pause_trigger_delay_sec)
+        except asyncio.CancelledError:
+            return
+        orch = self.runtime.orchestrator
+        if not orch.force_answer_mode:
+            return
+        # seen-utterances здесь не проверяем (см. should_pause_trigger).
+        # От спама защищает кулдаун.
+        now = time.monotonic()
+        if (now - orch.last_force_answer_ts) < orch.force_answer_min_interval_sec:
+            return
+        orch._ingest_segment_to_buffers(seg)
+        orch.last_force_answer_ts = now
+        logger.debug(
+            "pause_trigger fired: speaker=%s len=%d text=%.80s",
+            seg.speaker, len(seg.text), seg.text,
+        )
+        await self._bg_force_answer(seg)
+
     async def _bg_force_answer(self, seg: TranscriptSegment) -> None:
         """Фоновая генерация ответа LLM со стримингом — текст появляется по частям."""
         try:
             orch = self.runtime.orchestrator
             context = orch._build_force_context(seg)
             trigger_reason = orch._build_force_answer_reason(seg)
+            # Уникальный id, чтобы каждый ответ накапливался как отдельная карточка,
+            # а не перезаписывал предыдущий. Streaming-чанки одного ответа делят id.
+            unique_card_id = f"force::{seg.utteranceId}::{int(time.monotonic() * 1000)}"
 
             async def send_intermediate(card):
-                card.id = orch._slot_card_id(card.agent_name)
+                card.id = unique_card_id
                 await self._send_cards_async([card])
 
             result = await orch.llm.stream_build_answer_card(
@@ -492,7 +537,7 @@ class BackendServer:
                 on_card=send_intermediate,
             )
             card = result.card
-            card.id = orch._slot_card_id(card.agent_name)
+            card.id = unique_card_id
             logger.info("BG_FORCE_ANSWER_STREAM: latency=%.0fms timed_out=%s insight=%.80s",
                         result.latency_ms, result.timed_out, card.insight)
             orch.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)

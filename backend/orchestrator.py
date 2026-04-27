@@ -472,35 +472,71 @@ class TriggerOrchestrator:
         return any(marker in t for marker in interview_markers)
 
     def _should_force_answer(self, segment: TranscriptSegment) -> bool:
+        # Только для финалов. На partial-сегменты отвечает таск из
+        # schedule_partial_pause_answer (по тишине после фразы), потому что
+        # Apple Speech на непрерывной речи редко выдаёт isFinal.
+        if not segment.isFinal:
+            return False
         if segment.utteranceId in self.force_answer_seen_utterances:
             return False
-
         if segment.speaker not in {"THEM", "THEM_A", "THEM_B", "ME"}:
             return False
 
         normalized = normalize(segment.text)
+        if len(normalized) < 5:
+            return False
+        if len(normalized.split()) < 2:
+            return False
 
-        if not segment.isFinal:
-            # Partial-сегменты: генерируем реже и только для длинных фраз
-            if len(normalized.split()) < 5:
-                return False
-            now = time.monotonic()
-            if (now - self.last_force_answer_ts) < max(3.0, self.force_answer_min_interval_sec):
-                return False
-        else:
-            if len(normalized) < 5:
-                return False
-            if len(normalized.split()) < 2:
-                return False
-            now = time.monotonic()
-            # Финалы проверяют кулдаун только по другим финалам,
-            # чтобы partial-ответы не блокировали полный ответ на вопрос.
-            if (now - self.last_force_answer_final_ts) < self.force_answer_min_interval_sec:
-                return False
+        now = time.monotonic()
+        if (now - self.last_force_answer_final_ts) < self.force_answer_min_interval_sec:
+            return False
 
-        # В force-answer режиме отвечаем на любую содержательную реплику
-        # от любого спикера (ME или THEM) — пользователь явно запросил помощь.
         return True
+
+    def should_pause_trigger(self, segment: TranscriptSegment) -> bool:
+        # Кандидат на ответ по тишине: достаточно содержательный partial,
+        # последнее слово не выглядит обрубленным. seen-фильтр здесь
+        # умышленно не используется — Apple Speech на непрерывной речи
+        # не меняет utteranceId, и второй вопрос внутри той же utterance
+        # должен получать ответ. От спама защищает кулдаун в _fire_pause_trigger.
+        if segment.isFinal:
+            return False
+        if segment.speaker not in {"THEM", "THEM_A", "THEM_B", "ME"}:
+            return False
+
+        tokens = normalize(segment.text).split()
+        if len(tokens) < 4:
+            return False
+        if self._looks_like_truncated_tail(tokens[-1]):
+            return False
+        return True
+
+    _SHORT_WORDS_OK = frozenset({
+        "я", "ты", "он", "мы", "вы", "их", "нас", "вас", "им", "ей", "ее",
+        "и", "а", "но", "да", "нет", "не", "ни", "же", "ли", "то", "ну",
+        "уж", "ох", "ах", "ой", "вот", "так", "уже", "еще", "ещё", "там",
+        "тут", "где", "что", "как", "за", "из", "от", "до", "по", "на",
+        "под", "над", "при", "без", "для", "про", "или", "его", "её",
+    })
+
+    def _looks_like_truncated_tail(self, word: str) -> bool:
+        if len(word) >= 4:
+            return False
+        return word.lower() not in self._SHORT_WORDS_OK
+
+    _SHORT_WORDS_OK = frozenset({
+        "я", "ты", "он", "мы", "вы", "их", "нас", "вас", "им", "ей", "ее",
+        "и", "а", "но", "да", "нет", "не", "ни", "же", "ли", "то", "ну",
+        "уж", "ох", "ах", "ой", "вот", "так", "уже", "еще", "ещё", "там",
+        "тут", "где", "что", "как", "за", "из", "от", "до", "по", "на",
+        "под", "над", "при", "без", "для", "про", "или", "его", "её",
+    })
+
+    def _looks_like_truncated_tail(self, word: str) -> bool:
+        if len(word) >= 4:
+            return False
+        return word.lower() not in self._SHORT_WORDS_OK
 
     def _should_emit_force_cards_on_mic_end(self) -> bool:
         if self.paused or self.mic_speaking:

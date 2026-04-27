@@ -1313,7 +1313,11 @@ private extension MainViewModel {
     func handleIncomingCard(_ card: InsightCard) {
         let incomingSlot = cardSlotKey(card)
         var mergedCard = card
-        if let idx = activeCards.firstIndex(where: { cardSlotKey($0) == incomingSlot }) {
+        // force-answer карточки имеют уникальный id для каждого ответа и должны
+        // накапливаться (стрим обновляет по id), все прочие — дедупятся по слоту.
+        let mergeKey: (InsightCard) -> String = { self.isForceAnswerCard($0) ? $0.id : self.cardSlotKey($0) }
+        let incomingKey = mergeKey(card)
+        if let idx = activeCards.firstIndex(where: { mergeKey($0) == incomingKey }) {
             let existing = activeCards[idx]
             mergedCard.pinned = existing.pinned
             mergedCard.dismissed = existing.dismissed
@@ -1331,9 +1335,12 @@ private extension MainViewModel {
             }
             return lhs.timestamp > rhs.timestamp
         }
-        if activeCards.count > 3 {
-            activeCards = Array(activeCards.prefix(3))
-        }
+        let nonForceLimit = 3
+        let forceCards = activeCards.filter(isForceAnswerCard)
+        let otherCards = activeCards.filter { !isForceAnswerCard($0) }
+        let trimmedOthers = Array(otherCards.prefix(nonForceLimit))
+        activeCards = trimmedOthers + forceCards
+        _ = incomingSlot
 
         detachedCardWindowManager.updateIfDetached(card: mergedCard)
         syncActiveCard()
@@ -1368,6 +1375,14 @@ private extension MainViewModel {
     }
 
     func replaceRecent(_ card: InsightCard) {
+        if isForceAnswerCard(card) {
+            if let idx = recentCards.firstIndex(where: { $0.id == card.id }) {
+                recentCards[idx] = card
+                return
+            }
+            recentCards.insert(card, at: 0)
+            return
+        }
         let slot = cardSlotKey(card)
         if let idx = recentCards.firstIndex(where: { cardSlotKey($0) == slot }) {
             recentCards[idx] = card
@@ -1390,6 +1405,10 @@ private extension MainViewModel {
         (card.agentName ?? "Оркестратор")
             .lowercased()
             .replacingOccurrences(of: " ", with: "_")
+    }
+
+    func isForceAnswerCard(_ card: InsightCard) -> Bool {
+        return (card.agentName ?? "").lowercased() == "ответы на вопросы"
     }
 
     func cardPriority(_ card: InsightCard) -> Int {
