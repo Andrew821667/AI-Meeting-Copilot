@@ -1010,11 +1010,7 @@ private extension MainViewModel {
     }
 
     static func resolveExportsDirectory() -> URL {
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
-            return root.appendingPathComponent("exports", isDirectory: true)
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("exports")
+        return ExportsDirectory.resolve()
     }
 
     func makeASRProvider(optionID: String, captureMode: CaptureSourceMode) -> ASRProvider {

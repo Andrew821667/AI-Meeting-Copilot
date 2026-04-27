@@ -105,10 +105,6 @@ public final class SessionHistoryStore {
     }
 
     private func resolveExportsDirectory() -> String {
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
-            return root.appendingPathComponent("exports", isDirectory: true).path
-        }
-        return (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
+        return ExportsDirectory.resolvePath()
     }
 }

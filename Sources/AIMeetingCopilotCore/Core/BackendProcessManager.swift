@@ -241,16 +241,7 @@ public actor BackendProcessManager {
     // MARK: - Helpers
 
     private func resolveExportsDirectory() -> String {
-        if let explicit = ProcessInfo.processInfo.environment["AIMC_EXPORTS_DIR"], !explicit.isEmpty {
-            return explicit
-        }
-
-        if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            let root = appSupport.appendingPathComponent("AIMeetingCopilot", isDirectory: true)
-            return root.appendingPathComponent("exports", isDirectory: true).path
-        }
-
-        return (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
+        return ExportsDirectory.resolvePath()
     }
 
     private func resolvePythonExecutable() throws -> String {

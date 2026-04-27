@@ -10,8 +10,9 @@ public final class ExcludePhraseStore {
         if let dbPath {
             self.dbPath = dbPath
         } else {
-            let exportsDir = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent("exports")
-            self.dbPath = (exportsDir as NSString).appendingPathComponent("feedback.sqlite3")
+            self.dbPath = ExportsDirectory.resolve()
+                .appendingPathComponent("feedback.sqlite3")
+                .path
         }
         ensureDatabase()
     }
