@@ -88,7 +88,12 @@ public struct InsightCardView: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 180, alignment: .topLeading)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: 180,
+            maxHeight: isDirectAnswer ? 480 : 180,
+            alignment: .topLeading
+        )
         .background(surfaceColor)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(

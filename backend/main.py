@@ -13,6 +13,15 @@ from typing import Any
 
 
 from feedback_store import FeedbackStore
+from memory_loader import (
+    MemorySettings,
+    build_memory_block,
+    collect_state,
+    ensure_memory_dir,
+    load_settings as load_memory_settings,
+    memory_dir,
+    save_settings as save_memory_settings,
+)
 from models import AudioLevelEvent, MicEvent, SystemAudioChunk, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from pdf_export import export_report_pdf
@@ -157,6 +166,8 @@ class SessionRuntime:
         self.ended_at = 0.0
         self.active = False
         self.meeting_sub_mode = "one_on_one"  # "one_on_one" | "group"
+        self.force_qa_history: list[tuple[str, str]] = []
+        self.memory_block: str = ""
         self.diarizer = None  # OnlineSpeakerDiarizer, created on demand
 
         self.transcript: list[TranscriptSegment] = []
@@ -167,6 +178,16 @@ class SessionRuntime:
         self.started_at = time.time()
         self.ended_at = 0.0
         self.active = True
+        self.force_qa_history = []
+        self.reload_memory_block()
+
+    def reload_memory_block(self) -> None:
+        try:
+            ensure_memory_dir()
+            self.memory_block = build_memory_block()
+        except Exception:
+            logger.exception("memory: failed to load user memory")
+            self.memory_block = ""
 
         self.profile = apply_overrides(load_profile(profile), profile_overrides)
         self.profile_settings = profile_runtime_settings(self.profile)
@@ -477,9 +498,41 @@ class BackendServer:
                     },
                 }
             )
+        elif msg_type == "memory_state_request":
+            outbound.append(self._build_memory_state_packet())
+        elif msg_type == "memory_set_settings":
+            try:
+                enabled = bool(payload.get("enabled", True))
+                mode = str(payload.get("mode", "plain"))
+                settings = MemorySettings(enabled=enabled, mode=mode).normalized()
+                save_memory_settings(settings)
+                self.runtime.reload_memory_block()
+                logger.info("memory: settings updated -> enabled=%s mode=%s", settings.enabled, settings.mode)
+            except Exception:
+                logger.exception("memory: failed to save settings")
+                outbound.append(build_runtime_error("memory_settings_failed", "Не удалось сохранить настройки памяти"))
+            outbound.append(self._build_memory_state_packet())
+        elif msg_type == "memory_refresh":
+            ensure_memory_dir()
+            self.runtime.reload_memory_block()
+            outbound.append(self._build_memory_state_packet())
         else:
             outbound.append(build_runtime_error("unknown_event", f"Неизвестный тип события: {msg_type}"))
         return outbound
+
+    def _build_memory_state_packet(self) -> dict:
+        try:
+            state = collect_state()
+            return {"type": "memory_state", "payload": state.to_dict()}
+        except Exception:
+            logger.exception("memory: failed to collect state")
+            return build_runtime_error("memory_state_failed", "Не удалось собрать состояние памяти")
+
+    def _render_force_history(self) -> str:
+        if not self.runtime.force_qa_history:
+            return ""
+        blocks = [f"❓ {q}\n\n💬 {a}" for q, a in self.runtime.force_qa_history]
+        return "\n\n────────\n\n".join(blocks)
 
     def _cancel_pause_trigger(self) -> None:
         if self._pause_trigger_task is not None and not self._pause_trigger_task.done():
@@ -519,12 +572,19 @@ class BackendServer:
             orch = self.runtime.orchestrator
             context = orch._build_force_context(seg)
             trigger_reason = orch._build_force_answer_reason(seg)
-            # Уникальный id, чтобы каждый ответ накапливался как отдельная карточка,
-            # а не перезаписывал предыдущий. Streaming-чанки одного ответа делят id.
-            unique_card_id = f"force::{seg.utteranceId}::{int(time.monotonic() * 1000)}"
+            slot_id = orch._slot_card_id("Ответы на вопросы")
+            previous_history = self._render_force_history()
+            current_question = seg.text.strip()
+
+            def merge_with_history(answer_text: str) -> str:
+                current_block = f"❓ {current_question}\n\n💬 {answer_text}"
+                if previous_history:
+                    return previous_history + "\n\n────────\n\n" + current_block
+                return current_block
 
             async def send_intermediate(card):
-                card.id = unique_card_id
+                card.id = slot_id
+                card.insight = merge_with_history(card.insight)
                 await self._send_cards_async([card])
 
             result = await orch.llm.stream_build_answer_card(
@@ -535,9 +595,13 @@ class BackendServer:
                 question_text=seg.text,
                 source_ts_end=seg.tsEnd,
                 on_card=send_intermediate,
+                memory_block=self.runtime.memory_block,
             )
             card = result.card
-            card.id = unique_card_id
+            card.id = slot_id
+            answer_text = card.insight
+            self.runtime.force_qa_history.append((current_question, answer_text))
+            card.insight = merge_with_history(answer_text)
             logger.info("BG_FORCE_ANSWER_STREAM: latency=%.0fms timed_out=%s insight=%.80s",
                         result.latency_ms, result.timed_out, card.insight)
             orch.telemetry.on_llm_call(latency_ms=result.latency_ms, timed_out=result.timed_out)

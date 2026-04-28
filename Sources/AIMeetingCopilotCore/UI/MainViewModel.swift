@@ -91,6 +91,7 @@ public final class MainViewModel: ObservableObject {
 
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
+    public let memoryViewModel = MemoryViewModel()
     private let historyStore = SessionHistoryStore()
     private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
@@ -191,6 +192,13 @@ public final class MainViewModel: ObservableObject {
                 self?.errorMessage = message
             }
         }
+
+        udsClient.onMemoryState = { [weak self] state in
+            DispatchQueue.main.async {
+                self?.memoryViewModel.handleStateFromBackend(state)
+            }
+        }
+        memoryViewModel.attachUDSClient(udsClient)
 
         permissionsManager.$checklist
             .receive(on: DispatchQueue.main)
@@ -1313,11 +1321,7 @@ private extension MainViewModel {
     func handleIncomingCard(_ card: InsightCard) {
         let incomingSlot = cardSlotKey(card)
         var mergedCard = card
-        // force-answer карточки имеют уникальный id для каждого ответа и должны
-        // накапливаться (стрим обновляет по id), все прочие — дедупятся по слоту.
-        let mergeKey: (InsightCard) -> String = { self.isForceAnswerCard($0) ? $0.id : self.cardSlotKey($0) }
-        let incomingKey = mergeKey(card)
-        if let idx = activeCards.firstIndex(where: { mergeKey($0) == incomingKey }) {
+        if let idx = activeCards.firstIndex(where: { cardSlotKey($0) == incomingSlot }) {
             let existing = activeCards[idx]
             mergedCard.pinned = existing.pinned
             mergedCard.dismissed = existing.dismissed
@@ -1335,12 +1339,9 @@ private extension MainViewModel {
             }
             return lhs.timestamp > rhs.timestamp
         }
-        let nonForceLimit = 3
-        let forceCards = activeCards.filter(isForceAnswerCard)
-        let otherCards = activeCards.filter { !isForceAnswerCard($0) }
-        let trimmedOthers = Array(otherCards.prefix(nonForceLimit))
-        activeCards = trimmedOthers + forceCards
-        _ = incomingSlot
+        if activeCards.count > 3 {
+            activeCards = Array(activeCards.prefix(3))
+        }
 
         detachedCardWindowManager.updateIfDetached(card: mergedCard)
         syncActiveCard()
@@ -1375,14 +1376,6 @@ private extension MainViewModel {
     }
 
     func replaceRecent(_ card: InsightCard) {
-        if isForceAnswerCard(card) {
-            if let idx = recentCards.firstIndex(where: { $0.id == card.id }) {
-                recentCards[idx] = card
-                return
-            }
-            recentCards.insert(card, at: 0)
-            return
-        }
         let slot = cardSlotKey(card)
         if let idx = recentCards.firstIndex(where: { cardSlotKey($0) == slot }) {
             recentCards[idx] = card
@@ -1405,10 +1398,6 @@ private extension MainViewModel {
         (card.agentName ?? "Оркестратор")
             .lowercased()
             .replacingOccurrences(of: " ", with: "_")
-    }
-
-    func isForceAnswerCard(_ card: InsightCard) -> Bool {
-        return (card.agentName ?? "").lowercased() == "ответы на вопросы"
     }
 
     func cardPriority(_ card: InsightCard) -> Int {

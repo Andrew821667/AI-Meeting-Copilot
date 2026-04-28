@@ -52,6 +52,7 @@ public final class UDSEventClient: @unchecked Sendable {
     }
 
     public var onInsightCard: ((InsightCard) -> Void)?
+    public var onMemoryState: ((MemoryState) -> Void)?
     public var onSessionSummary: ((SessionSummary) -> Void)?
     public var onSessionAck: ((String) -> Void)?
     public var onRuntimeWarning: ((String) -> Void)?
@@ -235,6 +236,19 @@ public final class UDSEventClient: @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak self] in
                 self?.onCardReanalysisReply?(envelope.payload)
+            }
+
+        case "memory_state":
+            struct Envelope: Decodable {
+                let type: String
+                let payload: MemoryState
+            }
+            guard let envelope = try? JSONDecoder().decode(Envelope.self, from: line) else {
+                onError?("Ошибка декодирования состояния памяти")
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.onMemoryState?(envelope.payload)
             }
 
         case "speaker_label":

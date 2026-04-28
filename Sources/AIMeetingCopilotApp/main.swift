@@ -13,6 +13,10 @@ struct AIMeetingCopilotDesktopApp: App {
         .windowResizability(.automatic)
         .windowStyle(.automatic)
         .commands {
+            CommandGroup(after: .newItem) {
+                OpenMemoryWindowButton()
+            }
+
             CommandMenu("Доступы") {
                 Button(viewModel.microphonePermissionGranted ? "Микрофон: выдан" : "Микрофон: не выдан") {}
                     .disabled(true)
@@ -66,5 +70,21 @@ struct AIMeetingCopilotDesktopApp: App {
                 }
             }
         }
+
+        Window("Память / Контекст", id: "memory") {
+            MemoryWindowView(viewModel: viewModel.memoryViewModel)
+        }
+        .defaultSize(width: 720, height: 560)
+    }
+}
+
+private struct OpenMemoryWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Контекст и память…") {
+            openWindow(id: "memory")
+        }
+        .keyboardShortcut("M", modifiers: [.command, .shift])
     }
 }
