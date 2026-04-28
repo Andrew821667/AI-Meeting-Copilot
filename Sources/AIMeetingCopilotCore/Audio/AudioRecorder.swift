@@ -1,12 +1,14 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import os.log
 
 /// Записывает микрофонное и системное аудио в отдельные WAV-файлы.
 /// Потокобезопасен — все операции I/O выполняются на последовательной очереди.
 public final class AudioRecorder: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "AudioRecorder", qos: .utility)
+    private static let log = Logger(subsystem: "ai.meeting.copilot", category: "AudioRecorder")
 
     private var micFile: AVAudioFile?
     private var systemFile: AVAudioFile?
@@ -83,14 +85,23 @@ public final class AudioRecorder: @unchecked Sendable {
 
             // Если формат совпадает с целевым — пишем напрямую
             if sourceFormat.sampleRate == self.targetFormat.sampleRate
-                && sourceFormat.channelCount == self.targetFormat.channelCount {
-                try? file.write(from: buffer)
+                && sourceFormat.channelCount == self.targetFormat.channelCount
+                && sourceFormat.commonFormat == self.targetFormat.commonFormat
+                && sourceFormat.isInterleaved == self.targetFormat.isInterleaved {
+                do {
+                    try file.write(from: buffer)
+                } catch {
+                    Self.log.error("mic write failed (passthrough): \(error.localizedDescription)")
+                }
                 return
             }
 
             // Создаём конвертер при первом вызове или если формат изменился
             if self.micConverter == nil || self.micConverter?.inputFormat != sourceFormat {
                 self.micConverter = AVAudioConverter(from: sourceFormat, to: self.targetFormat)
+                if self.micConverter == nil {
+                    Self.log.error("mic AVAudioConverter init failed: \(String(describing: sourceFormat)) -> \(String(describing: self.targetFormat))")
+                }
             }
 
             guard let converter = self.micConverter else { return }
@@ -104,7 +115,7 @@ public final class AudioRecorder: @unchecked Sendable {
 
             var error: NSError?
             var inputConsumed = false
-            converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+            let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
                 if inputConsumed {
                     outStatus.pointee = .noDataNow
                     return nil
@@ -114,8 +125,15 @@ public final class AudioRecorder: @unchecked Sendable {
                 return buffer
             }
 
-            if error == nil && outputBuffer.frameLength > 0 {
-                try? file.write(from: outputBuffer)
+            if let error {
+                Self.log.error("mic convert error: \(error.localizedDescription) status=\(status.rawValue)")
+                return
+            }
+            guard outputBuffer.frameLength > 0 else { return }
+            do {
+                try file.write(from: outputBuffer)
+            } catch {
+                Self.log.error("mic write failed: \(error.localizedDescription)")
             }
         }
     }
@@ -131,7 +149,11 @@ public final class AudioRecorder: @unchecked Sendable {
                 return
             }
 
-            try? file.write(from: pcmBuffer)
+            do {
+                try file.write(from: pcmBuffer)
+            } catch {
+                Self.log.error("system write failed: \(error.localizedDescription)")
+            }
         }
     }
 

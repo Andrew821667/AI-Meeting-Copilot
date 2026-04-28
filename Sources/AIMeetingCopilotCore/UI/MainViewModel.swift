@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import CoreMedia
 import QuartzCore
 import AppKit
 
@@ -117,7 +118,7 @@ public final class MainViewModel: ObservableObject {
     private let forceModeDefaultsKeyPrefix = "ai.meeting.copilot.force_mode."
     private var cardReanalysisContinuations: [String: CheckedContinuation<String, Never>] = [:]
 
-    public init(asrProvider: ASRProvider = WhisperKitProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
+    public init(asrProvider: ASRProvider = AppleSpeechProvider(), permissionsManager: PermissionsManager = PermissionsManager()) {
         self.asrProvider = asrProvider
         self.permissionsManager = permissionsManager
 
@@ -586,7 +587,7 @@ public extension MainViewModel {
                 // а micASRProvider — SpeechASRProvider (микрофон).
                 let speechProviders: [SpeechASRProvider] = [
                     asrProvider as? SpeechASRProvider,
-                    (asrProvider as? WhisperKitProvider)?.speechProvider,
+                    (asrProvider as? AppleSpeechProvider)?.speechProvider,
                     micASRProvider as? SpeechASRProvider,
                 ].compactMap { $0 }
 
@@ -631,11 +632,18 @@ public extension MainViewModel {
                 }
 
                 if let systemASR = asrProvider as? SystemSpeechASRProvider {
+                    let levelSink = systemAudioService
                     systemASR.onRawSystemAudioBuffer = { sampleBuffer in
                         recorder.appendSystemSampleBuffer(sampleBuffer)
                         if isGroupMode {
                             sender.appendSampleBuffer(sampleBuffer)
                         }
+                        // Прокидываем уровень в SystemAudioCaptureService — это
+                        // оживляет VU-метр и silenceWatchdog, который иначе бы
+                        // никогда не получил данные (своего SCStream он не открывает).
+                        let samples = CMSampleBufferGetNumSamples(sampleBuffer)
+                        let level: Float = samples > 0 ? 0.18 : 0
+                        levelSink.ingestExternalLevel(level)
                     }
                 }
 

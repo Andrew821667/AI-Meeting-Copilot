@@ -70,11 +70,15 @@ public final class PermissionsManager: ObservableObject {
         let micGranted = (micStatus == .authorized)
         let speechGranted = (speechRecognitionStatusProvider() == .authorized)
         let preflightGranted = screenRecordingStatusProvider()
-        if preflightGranted && !screenPermissionOverride {
-            screenPermissionOverride = true
-            defaults.set(true, forKey: screenPermissionOverrideDefaultsKey)
+        // Override-флаг следует за preflight, а не «один раз true — навсегда true».
+        // Иначе если в Системных настройках разрешение отозвано или TCC сбросил
+        // его после ре-codesign, UI остаётся зелёным, а SCStream молча отдаёт
+        // пустой контент и собеседника не слышно.
+        if screenPermissionOverride != preflightGranted {
+            screenPermissionOverride = preflightGranted
+            defaults.set(preflightGranted, forKey: screenPermissionOverrideDefaultsKey)
         }
-        let screenGranted = preflightGranted || screenPermissionOverride
+        let screenGranted = preflightGranted
         let consent = defaults.integer(forKey: consentVersionDefaultsKey) >= Self.currentConsentVersion
 
         checklist = OnboardingChecklistState(

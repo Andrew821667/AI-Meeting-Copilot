@@ -147,16 +147,20 @@ public final class SystemAudioCaptureService: NSObject {
     private func startScreenCaptureKitStream() {
         captureTask?.cancel()
         captureTask = nil
+        // Реальный SCStream открывает SystemSpeechASRProvider.ScreenAudioInput
+        // (только там Speech-recognizer должен есть тот же поток сэмплов). Чтобы
+        // не открывать второй параллельный SCStream под VU-метр, MainViewModel
+        // прокидывает уровни сюда через ingestExternalLevel(_:) в момент, когда
+        // приходит каждый sampleBuffer от system ASR. До первого вызова уровень
+        // остаётся 0 — это честно: реальный звук ещё не пришёл.
+    }
 
-#if canImport(ScreenCaptureKit)
-        if #available(macOS 13.0, *) {
-            // В текущем локальном контуре оставляем безопасный baseline без async Task,
-            // чтобы избежать Swift 6 data-race diagnostics.
-            updateSystemLevel(0.04)
-            return
-        }
-#endif
-        updateSystemLevel(0)
+    /// Принимает уровень системного аудио, посчитанный поверх sampleBuffer'а
+    /// из SystemSpeechASRProvider.onRawSystemAudioBuffer. Без этого
+    /// silenceWatchdog не знал бы, идёт ли звук.
+    public func ingestExternalLevel(_ level: Float) {
+        guard isRunning, mode == .screenCaptureKit else { return }
+        updateSystemLevel(level)
     }
 }
 

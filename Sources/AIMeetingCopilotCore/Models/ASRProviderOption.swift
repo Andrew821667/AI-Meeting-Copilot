@@ -18,12 +18,20 @@ public struct ASRProviderOption: Identifiable, Hashable, Sendable {
         title: "Qwen3-ASR (демо)"
     )
 
+    // Qwen3-ASR пока не реализован — это MockASRProvider с захардкоженными
+    // фразами. В UI его не показываем, чтобы пользователь не наткнулся на
+    // подменённый транскрипт. Сама опция (и id) сохраняются: Factory всё ещё
+    // умеет её разрешать, и старые сохранённые селекшены не ломаются.
     public static let all: [ASRProviderOption] = [
+        .whisperKit,
+    ]
+
+    public static let allIncludingHidden: [ASRProviderOption] = [
         .whisperKit,
         .qwen3ASR,
     ]
 
     public static func title(for id: String) -> String {
-        all.first(where: { $0.id == id })?.title ?? id
+        allIncludingHidden.first(where: { $0.id == id })?.title ?? id
     }
 }
