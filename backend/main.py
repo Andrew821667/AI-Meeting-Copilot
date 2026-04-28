@@ -181,14 +181,6 @@ class SessionRuntime:
         self.force_qa_history = []
         self.reload_memory_block()
 
-    def reload_memory_block(self) -> None:
-        try:
-            ensure_memory_dir()
-            self.memory_block = build_memory_block()
-        except Exception:
-            logger.exception("memory: failed to load user memory")
-            self.memory_block = ""
-
         self.profile = apply_overrides(load_profile(profile), profile_overrides)
         self.profile_settings = profile_runtime_settings(self.profile)
         self.telemetry = TelemetryCollector()
@@ -212,6 +204,14 @@ class SessionRuntime:
 
         self.transcript = []
         self.cards = []
+
+    def reload_memory_block(self) -> None:
+        try:
+            ensure_memory_dir()
+            self.memory_block = build_memory_block()
+        except Exception:
+            logger.exception("memory: failed to load user memory")
+            self.memory_block = ""
 
     def record_card_feedback(self, payload: CardFeedback) -> None:
         if payload.session_id != self.session_id:
