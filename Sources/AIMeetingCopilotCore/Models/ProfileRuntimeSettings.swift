@@ -11,6 +11,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var systemAudioPath: String?
     public var meetingSubMode: String?
     public var llmProvider: String?
+    public var deepseekModel: String?
 
     public init(
         threshold: Double,
@@ -22,7 +23,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         micAudioPath: String? = nil,
         systemAudioPath: String? = nil,
         meetingSubMode: String? = nil,
-        llmProvider: String? = nil
+        llmProvider: String? = nil,
+        deepseekModel: String? = nil
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -34,6 +36,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.systemAudioPath = systemAudioPath
         self.meetingSubMode = meetingSubMode
         self.llmProvider = llmProvider
+        self.deepseekModel = deepseekModel
     }
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +50,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case systemAudioPath = "system_audio_path"
         case meetingSubMode = "meeting_sub_mode"
         case llmProvider = "llm_provider"
+        case deepseekModel = "deepseek_model"
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

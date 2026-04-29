@@ -33,6 +33,11 @@ class Profile:
     negative_rules: list[NegativeRule]
     force_answer_mode: bool = False
     llm_provider: str = "deepseek"
+    # Конкретная модель внутри DeepSeek API. "deepseek-chat" — это alias,
+    # автоматически указывающий на текущий релиз. Для прибивки к конкретному
+    # снапшоту можно поставить "deepseek-v4-flash" (быстрее) или
+    # "deepseek-v4-pro" (точнее, дороже).
+    deepseek_model: str = "deepseek-chat"
 
 
 def _negotiation() -> Profile:
@@ -216,6 +221,7 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         negative_rules=profile.negative_rules,
         force_answer_mode=bool(overrides.get("force_answer_mode", profile.force_answer_mode)),
         llm_provider=str(overrides.get("llm_provider", profile.llm_provider) or "deepseek"),
+        deepseek_model=str(overrides.get("deepseek_model", profile.deepseek_model) or "deepseek-chat"),
     )
 
 
@@ -231,4 +237,5 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "semantic_enabled": profile.semantic_enabled,
         "force_answer_mode": profile.force_answer_mode,
         "llm_provider": profile.llm_provider,
+        "deepseek_model": profile.deepseek_model,
     }

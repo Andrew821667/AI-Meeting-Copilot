@@ -139,12 +139,14 @@ class RealtimeLLMClient:
         self.transport = transport
 
     @classmethod
-    def from_env(cls, timeout_sec: float = 3.0) -> "RealtimeLLMClient":
+    def from_env(cls, timeout_sec: float = 3.0, model_override: str | None = None) -> "RealtimeLLMClient":
         api_key = os.environ.get("AIMC_DEEPSEEK_API_KEY", "").strip()
         if not api_key:
             return cls(timeout_sec=timeout_sec, transport=None)
 
-        model = os.environ.get("AIMC_DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
+        env_model = os.environ.get("AIMC_DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
+        # Приоритет: явный override от UI > AIMC_DEEPSEEK_MODEL env > "deepseek-chat".
+        model = (model_override or "").strip() or env_model
         base_url = os.environ.get("AIMC_DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip() or "https://api.deepseek.com"
         max_tokens = cls._safe_int_env("AIMC_DEEPSEEK_MAX_TOKENS", default=2000, min_value=64, max_value=8192)
         temperature = cls._safe_float_env("AIMC_DEEPSEEK_TEMPERATURE", default=0.2, min_value=0.0, max_value=2.0)

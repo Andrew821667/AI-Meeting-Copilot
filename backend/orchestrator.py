@@ -70,10 +70,12 @@ class TriggerOrchestrator:
         self.paused = value
 
     @staticmethod
-    def _create_llm_client(profile: Profile) -> RealtimeLLMClient:
+    def _create_llm_client(profile: Profile) -> RealtimeLLMClient:  # noqa: D401
+        # Сохраняем sигнатуру, но смотрим на profile.deepseek_model
+        # как на UI-override модели DeepSeek.
         if profile.llm_provider == "ollama":
             return RealtimeLLMClient.from_ollama_env()
-        return RealtimeLLMClient.from_env(timeout_sec=15.0)
+        return RealtimeLLMClient.from_env(timeout_sec=15.0, model_override=profile.deepseek_model)
 
     def update_profile(self, profile: Profile) -> None:
         old_provider = self.profile.llm_provider

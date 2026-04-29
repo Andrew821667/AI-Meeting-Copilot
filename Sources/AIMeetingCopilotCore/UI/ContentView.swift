@@ -365,6 +365,22 @@ public struct ContentView: View {
             }
             .frame(maxWidth: 200)
             .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+
+            // Picker модели DeepSeek виден только когда выбран этот провайдер.
+            // "deepseek-chat" — alias на текущий релиз (сейчас v4-flash); явно
+            // зафиксированные имена дают предсказуемое сравнение.
+            if (viewModel.profileSettings.llmProvider ?? "deepseek") == "deepseek" {
+                Picker("Модель", selection: Binding(
+                    get: { viewModel.profileSettings.deepseekModel ?? "deepseek-chat" },
+                    set: { viewModel.profileSettings.deepseekModel = $0 == "deepseek-chat" ? nil : $0 }
+                )) {
+                    Text("Авто (последняя)").tag("deepseek-chat")
+                    Text("V4 Flash (быстрее)").tag("deepseek-v4-flash")
+                    Text("V4 Pro (точнее)").tag("deepseek-v4-pro")
+                }
+                .frame(maxWidth: 220)
+                .disabled(viewModel.sessionState == .capturing || viewModel.sessionState == .paused)
+            }
         }
     }
 
