@@ -528,11 +528,23 @@ class BackendServer:
             logger.exception("memory: failed to collect state")
             return build_runtime_error("memory_state_failed", "Не удалось собрать состояние памяти")
 
+    # Сколько Q/A держим в памяти для одной сессии.
+    # Каждая пара ~2000 символов → 30 пар ≈ 60 KB system prompt'а на каждый
+    # запрос к DeepSeek. Дальше LLM начинает терять фокус, отвечает медленнее
+    # и стоит ощутимо дороже. Старые пары вытесняются по FIFO.
+    FORCE_HISTORY_MAX_PAIRS = 30
+
     def _render_force_history(self) -> str:
         if not self.runtime.force_qa_history:
             return ""
         blocks = [f"❓ {q}\n\n💬 {a}" for q, a in self.runtime.force_qa_history]
         return "\n\n────────\n\n".join(blocks)
+
+    def _record_force_qa(self, question: str, answer: str) -> None:
+        self.runtime.force_qa_history.append((question, answer))
+        overflow = len(self.runtime.force_qa_history) - self.FORCE_HISTORY_MAX_PAIRS
+        if overflow > 0:
+            del self.runtime.force_qa_history[:overflow]
 
     def _cancel_pause_trigger(self) -> None:
         if self._pause_trigger_task is not None and not self._pause_trigger_task.done():
@@ -600,7 +612,7 @@ class BackendServer:
             card = result.card
             card.id = slot_id
             answer_text = card.insight
-            self.runtime.force_qa_history.append((current_question, answer_text))
+            self._record_force_qa(current_question, answer_text)
             card.insight = merge_with_history(answer_text)
             logger.info("BG_FORCE_ANSWER_STREAM: latency=%.0fms timed_out=%s insight=%.80s",
                         result.latency_ms, result.timed_out, card.insight)
@@ -693,6 +705,10 @@ class BackendServer:
             return [{"type": "session_ack", "payload": {"event": "resume", "session_id": self.runtime.session_id}}]
 
         if event == "end":
+            # Отменяем pending pause-trigger, иначе он сработает уже после end()
+            # и попытается отправить ответ через writer, который мог быть закрыт.
+            self._cancel_pause_trigger()
+
             # Извлекаем пути к аудиофайлам из profile_overrides
             audio_paths = {}
             if profile_overrides:
