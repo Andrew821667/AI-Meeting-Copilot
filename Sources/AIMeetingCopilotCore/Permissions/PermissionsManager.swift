@@ -117,16 +117,12 @@ public final class PermissionsManager: ObservableObject {
 
     @discardableResult
     public func requestScreenRecordingPermission() -> Bool {
-        let granted = CGRequestScreenCaptureAccess()
-        if granted {
-            screenPermissionOverride = true
-        }
+        // Намеренно НЕ вызываем CGRequestScreenCaptureAccess() —
+        // системный диалог постоянно всплывает и не запоминается между
+        // ребилдами ad-hoc сборки. Возвращаем true, чтобы UI не блокировал.
+        screenPermissionOverride = true
         refresh()
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
-            refresh()
-        }
-        return granted
+        return true
     }
 
     public func acceptOneTimeAcknowledgement() {
@@ -136,54 +132,17 @@ public final class PermissionsManager: ObservableObject {
     }
 
     public func refreshScreenRecordingViaProbe() async {
-        if screenRecordingStatusProvider() {
-            setScreenPermissionOverride(true)
-            refresh()
-            return
-        }
-
-        // Ручная "глубокая" проверка по кнопке "Обновить статус":
-        // если доступ уже выдан в системе, метод вернет true и не покажет лишний диалог.
-        let requestGranted = CGRequestScreenCaptureAccess()
-        if requestGranted {
-            setScreenPermissionOverride(true)
-            refresh()
-            return
-        }
-
-#if canImport(ScreenCaptureKit)
-        if #available(macOS 13.0, *) {
-            do {
-                _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-                setScreenPermissionOverride(true)
-                refresh()
-                return
-            } catch {
-                // fallback к обновлению ниже
-            }
-        }
-#endif
-
-        if !screenRecordingStatusProvider() {
-            setScreenPermissionOverride(false)
-        }
+        // Намеренно no-op. Раньше тут вызывался CGRequestScreenCaptureAccess()
+        // и/или SCShareableContent.excludingDesktopWindows — оба триггерят
+        // системный диалог macOS. UI больше не gating'уется по screen
+        // permission, поэтому глубокая проверка не нужна.
+        setScreenPermissionOverride(true)
         refresh()
     }
 
     public func synchronizeScreenRecordingPermission() {
-        let preflightGranted = screenRecordingStatusProvider()
-        if preflightGranted {
-            setScreenPermissionOverride(true)
-            refresh()
-            return
-        }
-
-        // Важный шаг: sync-check через request API на MainActor.
-        // Если доступ уже выдан в системных настройках, здесь получаем true.
-        let requestGranted = CGRequestScreenCaptureAccess()
-        if requestGranted {
-            setScreenPermissionOverride(true)
-        }
+        // No-op по той же причине, что и refreshScreenRecordingViaProbe().
+        setScreenPermissionOverride(true)
         refresh()
     }
 
