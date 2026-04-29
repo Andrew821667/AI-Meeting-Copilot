@@ -1041,9 +1041,14 @@ private extension MainViewModel {
     }
 
     func makeASRProvider(optionID: String, captureMode: CaptureSourceMode) -> ASRProvider {
-        if optionID == ASRProviderOption.whisperKit.id && captureMode == .meeting {
-            return SystemSpeechASRProvider()
-        }
+        // SystemSpeechASRProvider отключён намеренно. Он внутри открывает
+        // SCStream (ScreenCaptureKit), а под ad-hoc подписью macOS постоянно
+        // показывает диалог Screen Recording, не запоминает grant между
+        // ребилдами и блокирует работу. Захват системного звука собеседника
+        // через ScreenCaptureKit вернётся, когда appell будет подписан
+        // Developer ID. До тех пор всегда работаем только через микрофон —
+        // системного диалога не будет.
+        _ = captureMode
         return ASRProviderFactory.make(optionID: optionID)
     }
 
