@@ -11,7 +11,7 @@ public enum SystemAudioCaptureError: Error {
     case sourceUnavailable
 }
 
-public final class SystemAudioCaptureService: NSObject {
+public final class SystemAudioCaptureService: NSObject, @unchecked Sendable {
     public var onAudioLevel: ((AudioLevelEvent) -> Void)?
     public var onCaptureModeChanged: ((CaptureMode, String) -> Void)?
 
