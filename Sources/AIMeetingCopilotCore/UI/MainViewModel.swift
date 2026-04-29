@@ -1037,7 +1037,14 @@ private extension MainViewModel {
     }
 
     func refreshPermissionsOnAppActivated() {
+        // Когда пользователь возвращается в .app (например, после выдачи
+        // permission в System Settings), preflight может всё ещё врать.
+        // Делаем глубокую async probe через SCShareableContent — она
+        // отражает реальное состояние TCC.
         permissionsManager.refresh()
+        Task { @MainActor [weak self] in
+            await self?.permissionsManager.refreshScreenRecordingViaProbe()
+        }
         schedulePermissionRefreshBurst()
     }
 
