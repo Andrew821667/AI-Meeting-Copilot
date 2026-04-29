@@ -339,7 +339,13 @@ public extension MainViewModel {
     }
 
     var screenPermissionGranted: Bool {
-        permissionsManager.checklist.screenRecordingPermissionGranted
+        // Принудительно true. Apple TCC привязан к cdhash ad-hoc сборки и
+        // постоянно сбрасывает grant между ребилдами. Для личного приложения
+        // не имеет смысла блокировать UI этим — захват либо стартует, либо
+        // ScreenCaptureKit честно бросит ошибку, и тогда macOS сама покажет
+        // системный диалог разрешения. Не показываем красные крестики и не
+        // блокируем "Начать захват".
+        return true
     }
 
     var consentAccepted: Bool {
@@ -351,7 +357,10 @@ public extension MainViewModel {
     }
 
     var requiresScreenPermission: Bool {
-        selectedCaptureSourceMode.requiresScreenPermission
+        // См. screenPermissionGranted. UI больше не gating'уется по этому
+        // флагу — повседневная пересборка сбрасывает TCC, и красная плашка
+        // мешает работать вместо того чтобы помогать.
+        return false
     }
 
     var requiresSpeechPermission: Bool {
@@ -363,7 +372,9 @@ public extension MainViewModel {
     }
 
     var screenPermissionMissingForMeetingMode: Bool {
-        selectedCaptureSourceMode == .meeting && !permissionsManager.checklist.screenRecordingPermissionGranted
+        // Не показываем оранжевый warning «нет доступа к записи экрана» —
+        // см. screenPermissionGranted.
+        return false
     }
 
     var startGuideText: String {
