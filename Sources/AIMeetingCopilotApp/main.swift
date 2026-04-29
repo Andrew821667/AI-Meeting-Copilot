@@ -66,7 +66,9 @@ struct AIMeetingCopilotDesktopApp: App {
                 Divider()
 
                 Button("Обновить статусы доступов") {
-                    viewModel.refreshPermissions()
+                    // Глубокая проверка через ScreenCaptureKit — preflight
+                    // на macOS часто не отражает свежий grant из System Settings.
+                    viewModel.refreshPermissionsWithProbe()
                 }
             }
         }

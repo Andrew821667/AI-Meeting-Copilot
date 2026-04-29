@@ -102,7 +102,10 @@ public struct OnboardingChecklistView: View {
             if viewModel.consentAccepted {
                 consentChecked = true
             }
-            viewModel.refreshPermissions()
+            // Используем глубокую проверку (через SCShareableContent /
+            // CGRequestScreenCaptureAccess), а не только preflight — он часто
+            // врёт после grant без перезапуска .app.
+            viewModel.refreshPermissionsWithProbe()
         }
     }
 

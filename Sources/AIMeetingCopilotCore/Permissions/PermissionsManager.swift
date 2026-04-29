@@ -37,12 +37,17 @@ public final class PermissionsManager: ObservableObject {
 
     private let consentVersionDefaultsKey = "consent_ack_version"
     private let legacyConsentDefaultsKey = "consent_ack_v1"
-    private let screenPermissionOverrideDefaultsKey = "screen_permission_override_v1"
     private let defaults: UserDefaults
     private let microphoneStatusProvider: () -> AVAuthorizationStatus
     private let speechRecognitionStatusProvider: () -> SFSpeechRecognizerAuthorizationStatus
     private let screenRecordingStatusProvider: () -> Bool
-    private var screenPermissionOverride: Bool
+    /// In-memory только. CGPreflightScreenCaptureAccess() известен тем, что
+    /// возвращает false до первого реального вызова screen capture API, даже
+    /// если permission в System Settings выдан. Поэтому держим кэш результата
+    /// последней успешной глубокой проверки (через SCShareableContent или
+    /// CGRequestScreenCaptureAccess). При перезапуске .app кэш сбрасывается —
+    /// это лучше, чем persist в UserDefaults (тот раньше залипал в true).
+    private var screenPermissionOverride: Bool = false
 
     public init(
         defaults: UserDefaults = .standard,
@@ -54,7 +59,6 @@ public final class PermissionsManager: ObservableObject {
         self.microphoneStatusProvider = microphoneStatusProvider
         self.speechRecognitionStatusProvider = speechRecognitionStatusProvider
         self.screenRecordingStatusProvider = screenRecordingStatusProvider
-        self.screenPermissionOverride = defaults.bool(forKey: screenPermissionOverrideDefaultsKey)
         self.checklist = OnboardingChecklistState(
             microphonePermissionGranted: false,
             speechRecognitionPermissionGranted: false,
@@ -70,15 +74,15 @@ public final class PermissionsManager: ObservableObject {
         let micGranted = (micStatus == .authorized)
         let speechGranted = (speechRecognitionStatusProvider() == .authorized)
         let preflightGranted = screenRecordingStatusProvider()
-        // Override-флаг следует за preflight, а не «один раз true — навсегда true».
-        // Иначе если в Системных настройках разрешение отозвано или TCC сбросил
-        // его после ре-codesign, UI остаётся зелёным, а SCStream молча отдаёт
-        // пустой контент и собеседника не слышно.
-        if screenPermissionOverride != preflightGranted {
-            screenPermissionOverride = preflightGranted
-            defaults.set(preflightGranted, forKey: screenPermissionOverrideDefaultsKey)
+        // Override = кэш ПРАВДЫ, полученной через SCShareableContent или
+        // CGRequestScreenCaptureAccess. Используем как ИЛИ-фолбэк, когда
+        // preflight врёт (а он часто врёт после grant без перезапуска .app).
+        // Сбрасывается на каждом старте приложения и при явной отрицательной
+        // глубокой проверке.
+        if preflightGranted {
+            screenPermissionOverride = true
         }
-        let screenGranted = preflightGranted
+        let screenGranted = preflightGranted || screenPermissionOverride
         let consent = defaults.integer(forKey: consentVersionDefaultsKey) >= Self.currentConsentVersion
 
         checklist = OnboardingChecklistState(
@@ -116,7 +120,6 @@ public final class PermissionsManager: ObservableObject {
         let granted = CGRequestScreenCaptureAccess()
         if granted {
             screenPermissionOverride = true
-            defaults.set(true, forKey: screenPermissionOverrideDefaultsKey)
         }
         refresh()
         Task { @MainActor in
@@ -209,8 +212,8 @@ public final class PermissionsManager: ObservableObject {
     }
 
     private func setScreenPermissionOverride(_ granted: Bool) {
+        // In-memory only — никакого UserDefaults. См. комментарий у поля.
         screenPermissionOverride = granted
-        defaults.set(granted, forKey: screenPermissionOverrideDefaultsKey)
     }
 
 }
