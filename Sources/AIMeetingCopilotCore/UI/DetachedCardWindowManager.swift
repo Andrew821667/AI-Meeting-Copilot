@@ -28,21 +28,40 @@ public final class DetachedCardWindowManager: NSObject {
             return false
         }
 
-        let window = NSWindow(
+        // NSPanel вместо NSWindow:
+        // - .nonactivatingPanel — клик в карточку не отбирает фокус у Zoom/Telemost,
+        //   пользователь может кликнуть и продолжить разговор не теряя контекст.
+        // - .utilityWindow — узкий заголовок, не прерывает основное окно.
+        let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel, .hudWindow],
             backing: .buffered,
             defer: false
         )
-        window.title = "Карточка — \(card.agentName ?? "Оркестратор")"
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
-        window.isOpaque = true
-        window.appearance = NSAppearance(named: .aqua)
-        window.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0)
+        panel.title = "Карточка — \(card.agentName ?? "Оркестратор")"
+        panel.isReleasedWhenClosed = false
+        panel.isMovableByWindowBackground = true
+        panel.isOpaque = true
+        panel.appearance = NSAppearance(named: .aqua)
+        panel.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0)
 
-        // Гарантия: окно не попадает в screen sharing/захват экрана.
-        window.sharingType = .none
+        // Полная автономность от main-окна:
+        // 1) sharingType=.none — окно не попадает в screen sharing / Zoom Share
+        //    Screen / QuickTime запись, даже если идёт трансляция всего экрана.
+        panel.sharingType = .none
+        // 2) level=.floating — всегда поверх остальных (включая Zoom, Telemost,
+        //    браузеры). Не отнимает фокус, просто всегда видно.
+        panel.level = .floating
+        // 3) collectionBehavior — окно видно во всех Spaces, не сворачивается
+        //    с .app, остаётся при full-screen других окон, не показывается
+        //    отдельной плиткой в Mission Control.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        // 4) hidesOnDeactivate=false — карточка остаётся, когда пользователь
+        //    переключается на Zoom/Telemost.
+        panel.hidesOnDeactivate = false
+        // 5) becomesKeyOnlyIfNeeded — клик по тексту не активирует окно.
+        panel.becomesKeyOnlyIfNeeded = true
+        let window: NSWindow = panel
 
         windows[slot] = window
         onCloseHandlers[slot] = onClose
