@@ -8,11 +8,13 @@ import os
 import signal
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
 from feedback_store import FeedbackStore
+from memory_hub_client import MemoryHubClient, MemoryHubConfig
 from memory_loader import (
     MemorySettings,
     build_memory_block,
@@ -168,6 +170,8 @@ class SessionRuntime:
         self.meeting_sub_mode = "one_on_one"  # "one_on_one" | "group"
         self.force_qa_history: list[tuple[str, str]] = []
         self.memory_block: str = ""
+        self.memory_hub = MemoryHubClient()
+        self.memory_settings_cache: MemorySettings = load_memory_settings()
         self.diarizer = None  # OnlineSpeakerDiarizer, created on demand
 
         self.transcript: list[TranscriptSegment] = []
@@ -208,7 +212,8 @@ class SessionRuntime:
     def reload_memory_block(self) -> None:
         try:
             ensure_memory_dir()
-            self.memory_block = build_memory_block()
+            self.memory_settings_cache = load_memory_settings()
+            self.memory_block = build_memory_block(settings=self.memory_settings_cache)
         except Exception:
             logger.exception("memory: failed to load user memory")
             self.memory_block = ""
@@ -540,6 +545,21 @@ class BackendServer:
         blocks = [f"❓ {q}\n\n💬 {a}" for q, a in self.runtime.force_qa_history]
         return "\n\n────────\n\n".join(blocks)
 
+    def _build_session_capture_text(self) -> str:
+        """Собирает финальный текст сессии для отправки в Memory Hub:
+        транскрипт + все Q/A пары из force-answer истории."""
+        parts: list[str] = []
+        transcript = self.runtime.transcript
+        if transcript:
+            lines = [f"{seg.speaker}: {seg.text}" for seg in transcript if seg.isFinal]
+            if lines:
+                parts.append("## Транскрипт\n\n" + "\n".join(lines))
+        history = self.runtime.force_qa_history
+        if history:
+            qa_lines = [f"❓ {q}\n\n💬 {a}" for q, a in history]
+            parts.append("## Ответы помощника\n\n" + "\n\n────────\n\n".join(qa_lines))
+        return "\n\n".join(parts)
+
     def _record_force_qa(self, question: str, answer: str) -> None:
         self.runtime.force_qa_history.append((question, answer))
         overflow = len(self.runtime.force_qa_history) - self.FORCE_HISTORY_MAX_PAIRS
@@ -588,6 +608,20 @@ class BackendServer:
             previous_history = self._render_force_history()
             current_question = seg.text.strip()
 
+            # Готовим итоговый memory_block: plain (если режим plain) ИЛИ
+            # ответ Memory Hub под текущий вопрос (если режим memory_hub).
+            settings = self.runtime.memory_settings_cache
+            memory_block = self.runtime.memory_block  # plain-блок, посчитан на старте
+            if settings.enabled and settings.mode == "memory_hub":
+                hub_block = await asyncio.to_thread(
+                    self.runtime.memory_hub.build_context,
+                    current_question,
+                )
+                if hub_block:
+                    memory_block = hub_block
+                    logger.debug("memory_hub: context %d chars for question %.60s",
+                                 len(hub_block), current_question)
+
             def merge_with_history(answer_text: str) -> str:
                 current_block = f"❓ {current_question}\n\n💬 {answer_text}"
                 if previous_history:
@@ -607,7 +641,7 @@ class BackendServer:
                 question_text=seg.text,
                 source_ts_end=seg.tsEnd,
                 on_card=send_intermediate,
-                memory_block=self.runtime.memory_block,
+                memory_block=memory_block,
             )
             card = result.card
             card.id = slot_id
@@ -716,7 +750,26 @@ class BackendServer:
                     audio_paths["mic_audio_path"] = profile_overrides["mic_audio_path"]
                 if profile_overrides.get("system_audio_path"):
                     audio_paths["system_audio_path"] = profile_overrides["system_audio_path"]
+            duration_sec = max(0.0, time.time() - self.runtime.started_at)
+            session_id_for_capture = self.runtime.session_id
+            profile_id_for_capture = self.runtime.profile.id
+            captured_transcript = self._build_session_capture_text()
             summary = self.runtime.end(audio_paths=audio_paths)
+            # Write-back в Memory Hub: после end, не блокируя ответ.
+            settings = self.runtime.memory_settings_cache
+            if settings.enabled and settings.mode == "memory_hub" and captured_transcript:
+                title = f"Meeting · {profile_id_for_capture} · {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                task = asyncio.create_task(asyncio.to_thread(
+                    self.runtime.memory_hub.capture_session,
+                    session_id=session_id_for_capture,
+                    title=title,
+                    content=captured_transcript,
+                    duration_sec=duration_sec,
+                    participants_count=0,
+                    profile_id=profile_id_for_capture,
+                ))
+                self._bg_tasks.add(task)
+                task.add_done_callback(self._bg_tasks.discard)
             return [{"type": "session_summary", "payload": summary}]
 
         if event == "profile_update":

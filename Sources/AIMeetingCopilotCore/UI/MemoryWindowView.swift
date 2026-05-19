@@ -68,16 +68,31 @@ public struct MemoryWindowView: View {
                     set: { viewModel.setMode($0) }
                 )) {
                     Text("Plain — вклеить весь корпус").tag("plain")
+                    Text(viewModel.state.memory_hub_available
+                         ? "Memory Hub — внешний RAG"
+                         : "Memory Hub (не настроен)").tag("memory_hub")
                     Text(viewModel.state.rag_available
-                         ? "RAG — поиск по эмбеддингам"
-                         : "RAG — поиск по эмбеддингам (скоро)").tag("rag")
+                         ? "RAG — локальный поиск"
+                         : "RAG — локальный поиск (скоро)").tag("rag")
                 }
                 .pickerStyle(.segmented)
                 .disabled(!viewModel.state.settings.enabled)
             }
 
+            if viewModel.state.settings.mode == "memory_hub" {
+                if viewModel.state.memory_hub_available {
+                    Label("Memory Hub активен: \(viewModel.state.memory_hub_url). Для каждого вопроса делаем hybrid-search по внешней памяти; после окончания сессии транскрипт уходит в Hub как новый источник.", systemImage: "checkmark.seal")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Label("Memory Hub не настроен. Добавь в ~/Library/Application Support/AIMeetingCopilot/.env: AIMC_MEMORYHUB_URL и AIMC_MEMORYHUB_TOKEN, затем перезапусти приложение.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
             if viewModel.state.settings.mode == "rag" && !viewModel.state.rag_available {
-                Label("RAG-режим в разработке: чанкование и векторизация будут добавлены отдельным обновлением. Сейчас работает только Plain.", systemImage: "info.circle")
+                Label("Локальный RAG в разработке: чанкование и векторизация будут добавлены отдельным обновлением. Сейчас работает только Plain.", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

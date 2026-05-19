@@ -34,6 +34,8 @@ public struct MemoryState: Codable, Equatable, Sendable {
     public var truncated: Bool
     public var folder_path: String
     public var rag_available: Bool
+    public var memory_hub_available: Bool
+    public var memory_hub_url: String
 
     public init(
         settings: MemorySettings = MemorySettings(),
@@ -42,7 +44,9 @@ public struct MemoryState: Codable, Equatable, Sendable {
         limit_chars: Int = 30_000,
         truncated: Bool = false,
         folder_path: String = "",
-        rag_available: Bool = false
+        rag_available: Bool = false,
+        memory_hub_available: Bool = false,
+        memory_hub_url: String = ""
     ) {
         self.settings = settings
         self.files = files
@@ -51,5 +55,7 @@ public struct MemoryState: Codable, Equatable, Sendable {
         self.truncated = truncated
         self.folder_path = folder_path
         self.rag_available = rag_available
+        self.memory_hub_available = memory_hub_available
+        self.memory_hub_url = memory_hub_url
     }
 }

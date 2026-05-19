@@ -22,7 +22,7 @@ SUPPORTED_SUFFIXES = {".md", ".txt", ".markdown"}
 DEFAULT_MAX_CHARS = 30_000  # ~7500 токенов, безопасно для DeepSeek
 SETTINGS_FILENAME = "memory_settings.json"
 
-VALID_MODES = ("plain", "rag")
+VALID_MODES = ("plain", "rag", "memory_hub")
 
 README_TEMPLATE = """# Память для AI Meeting Copilot
 
@@ -79,6 +79,8 @@ class MemoryState:
     truncated: bool = False
     folder_path: str = ""
     rag_available: bool = False  # пока всегда False — фича в разработке
+    memory_hub_available: bool = False  # есть AIMC_MEMORYHUB_URL/TOKEN и /health OK
+    memory_hub_url: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +91,8 @@ class MemoryState:
             "truncated": self.truncated,
             "folder_path": self.folder_path,
             "rag_available": self.rag_available,
+            "memory_hub_available": self.memory_hub_available,
+            "memory_hub_url": self.memory_hub_url,
         }
 
 
@@ -199,9 +203,17 @@ def build_memory_block(
     max_chars: int = DEFAULT_MAX_CHARS,
     settings: MemorySettings | None = None,
 ) -> str:
-    """Возвращает готовый текст памяти для вклейки в system prompt, либо ''."""
+    """Возвращает готовый текст памяти для вклейки в system prompt, либо ''.
+
+    Этот метод обслуживает только plain-режим. memory_hub режим строит
+    блок per-question в _bg_force_answer (нужен текст вопроса), поэтому
+    тут он возвращает '' — Hub не вклеивается на старте сессии.
+    """
     cfg = (settings or load_settings()).normalized()
     if not cfg.enabled:
+        return ""
+    if cfg.mode == "memory_hub":
+        # Hub запрашивается per-question в pipeline force-answer.
         return ""
     if cfg.mode == "rag":
         # RAG ещё не реализован — fallback на plain, чтобы фича работала.
@@ -245,6 +257,12 @@ def collect_state(
     target = path or memory_dir()
     files_meta = list_memory_files_meta(target)
     total = sum(f.chars for f in files_meta)
+
+    # Memory Hub: смотрим только что есть конфиг (URL+token). Полноценный
+    # ping мы здесь не делаем, чтобы UDS-ответ не тормозил на 3 секунды
+    # таймаута. /context/build всё равно сам отвалится тихо, если Hub лёг.
+    from memory_hub_client import MemoryHubConfig  # локальный импорт, чтобы избежать цикла
+    hub_cfg = MemoryHubConfig.from_env()
     return MemoryState(
         settings=cfg,
         files=files_meta,
@@ -253,4 +271,6 @@ def collect_state(
         truncated=total > max_chars,
         folder_path=str(target),
         rag_available=False,
+        memory_hub_available=hub_cfg.enabled,
+        memory_hub_url=hub_cfg.base_url if hub_cfg.enabled else "",
     )
