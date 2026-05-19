@@ -24,8 +24,11 @@ import httpx
 logger = logging.getLogger("aimc.backend.memory_hub")
 
 DEFAULT_URL = "https://memory.ai-verdict.ru"
-TIMEOUT_CONTEXT_SEC = 6.0  # /context/build делает hybrid search + опц. summary
-TIMEOUT_CAPTURE_SEC = 15.0  # capture может тригерить пайплайн извлечения
+TIMEOUT_CONTEXT_SEC = 15.0  # /context/build делает hybrid search + summary
+                            # через OpenAI; на пустом/холодном корпусе может
+                            # подвисать на 10-15с. Дольше держать не имеет
+                            # смысла — иначе сам ответ Copilot будет тормозить.
+TIMEOUT_CAPTURE_SEC = 20.0  # capture тригерит пайплайн извлечения memory_items
 
 
 @dataclass
@@ -94,6 +97,12 @@ class MemoryHubClient:
                 headers=self._auth_headers(),
                 timeout=TIMEOUT_CONTEXT_SEC,
             )
+        except httpx.TimeoutException:
+            logger.warning(
+                "memory_hub: /context/build timed out after %.0fs (Hub slow/empty?)",
+                TIMEOUT_CONTEXT_SEC,
+            )
+            return ""
         except Exception as exc:
             logger.warning("memory_hub: context build failed: %s", exc)
             return ""
