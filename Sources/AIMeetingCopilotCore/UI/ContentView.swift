@@ -460,6 +460,28 @@ public struct ContentView: View {
             .tint(viewModel.profileSettings.forceAnswerMode
                   ? Color(red: 0.40, green: 0.31, blue: 0.23)
                   : Color(red: 0.58, green: 0.53, blue: 0.46))
+
+            // Быстрая кнопка вкл/выкл памяти прямо в основном окне —
+            // полные настройки (выбор Plain/Memory Hub, файлы) в окне ⇧⌘M.
+            Button(viewModel.memoryViewModel.state.settings.enabled
+                   ? "Память: ВКЛ (\(memoryModeLabel))"
+                   : "Память: ВЫКЛ") {
+                viewModel.memoryViewModel.setEnabled(!viewModel.memoryViewModel.state.settings.enabled)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(viewModel.memoryViewModel.state.settings.enabled
+                  ? Color(red: 0.27, green: 0.43, blue: 0.32)
+                  : Color(red: 0.58, green: 0.53, blue: 0.46))
+            .help("Включает использование пользовательской памяти при ответах LLM. Подробные настройки — File → «Контекст и память…» (⇧⌘M).")
+        }
+    }
+
+    private var memoryModeLabel: String {
+        switch viewModel.memoryViewModel.state.settings.mode {
+        case "memory_hub": return "Hub"
+        case "rag":       return "RAG"
+        default:           return "Plain"
         }
     }
 
