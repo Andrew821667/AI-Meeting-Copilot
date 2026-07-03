@@ -585,12 +585,14 @@ public extension MainViewModel {
 
                 captureMode = selectedCaptureSourceMode == .meeting ? .screenCaptureKit : .micOnly
 
-                // В meeting-режиме запускаем второй ASR для транскрипции микрофона (ME)
-                if selectedCaptureSourceMode == .meeting {
-                    micASRProvider = SpeechASRProvider()
-                } else {
-                    micASRProvider = nil
-                }
+                // Второй ASR (микрофон) был нужен, когда основной asrProvider
+                // слушал системный звук через SystemSpeechASRProvider. Сейчас
+                // SCStream отключён и основной провайдер сам слушает микрофон.
+                // Два параллельных SFSpeechRecognizer-стрима не просто лишние —
+                // системный speech-сервис инвалидирует их по кругу (парные
+                // 1110 "no speech" в логах), и транскрипт рвётся на
+                // однословные обрывки. Только один провайдер.
+                micASRProvider = nil
 
                 // Подключаем буферы микрофона к ASR-провайдерам.
                 // В micOnly-режиме основной asrProvider — это SpeechASRProvider.

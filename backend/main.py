@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
 import signal
 import time
@@ -74,10 +75,23 @@ class CardReanalyze:
 def configure_logging() -> None:
     level_name = os.environ.get("AIMC_LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    # Постоянный лог-файл в Application Support — переживает перезагрузки
+    # (в отличие от /tmp) и всегда доступен для диагностики.
+    try:
+        log_dir = Path.home() / "Library/Application Support/AIMeetingCopilot"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_dir / "backend.log",
+            maxBytes=5_000_000,
+            backupCount=2,
+            encoding="utf-8",
+        )
+        handlers.append(file_handler)
+    except Exception:
+        pass
+    logging.basicConfig(level=level, format=fmt, handlers=handlers)
 
 
 def load_environment_files() -> None:
