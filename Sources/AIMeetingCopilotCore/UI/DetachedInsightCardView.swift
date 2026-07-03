@@ -4,6 +4,8 @@ import AppKit
 struct DetachedInsightCardView: View {
     let card: InsightCard
     let fontSize: CGFloat
+    let isPinnedOnTop: Bool
+    let onTogglePin: () -> Void
     let onClose: () -> Void
 
     private let primaryTextColor = Color(red: 0.20, green: 0.13, blue: 0.09)
@@ -12,7 +14,7 @@ struct DetachedInsightCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Заголовок
-            HStack {
+            HStack(spacing: 8) {
                 Text(card.agentName ?? "Оркестратор")
                     .font(.headline)
                     .foregroundStyle(primaryTextColor)
@@ -21,7 +23,26 @@ struct DetachedInsightCardView: View {
                 Text(localizedSpeaker(card.speaker))
                     .font(.subheadline)
                     .foregroundStyle(secondaryTextColor)
+
                 Spacer()
+
+                // Индикатор приватности: sharingType=.none, собеседник это
+                // окно не видит при любой демонстрации экрана.
+                Image(systemName: "eye.slash.fill")
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextColor.opacity(0.7))
+                    .help("Скрыта при демонстрации экрана — собеседник эту карточку не видит")
+
+                // Toggle «поверх всех окон».
+                Button(action: onTogglePin) {
+                    Image(systemName: isPinnedOnTop ? "pin.fill" : "pin.slash")
+                        .font(.caption)
+                        .foregroundStyle(isPinnedOnTop ? Color(red: 0.55, green: 0.35, blue: 0.12) : secondaryTextColor.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .help(isPinnedOnTop
+                      ? "Поверх всех окон: ВКЛ — нажми, чтобы окно вело себя как обычное"
+                      : "Поверх всех окон: ВЫКЛ — нажми, чтобы карточка была всегда видна")
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -52,9 +73,8 @@ struct DetachedInsightCardView: View {
                 .ignoresSafeArea()
         )
         .preferredColorScheme(.light)
-        .onAppear {
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        // NSApp.activate здесь раньше КРАЛ фокус у Zoom/Telemost при каждом
+        // streaming-обновлении карточки (каждые ~300мс). Убран намеренно.
     }
 
     private func localizedSpeaker(_ speaker: String) -> String {

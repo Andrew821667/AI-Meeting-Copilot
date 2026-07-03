@@ -5,7 +5,11 @@ import SwiftUI
 @MainActor
 public final class DetachedCardWindowManager: NSObject {
     private var windows: [String: NSWindow] = [:]
+    private var hostingViews: [String: NSHostingView<AnyView>] = [:]
     private var onCloseHandlers: [String: () -> Void] = [:]
+    private var lastCards: [String: InsightCard] = [:]
+    /// «Поверх всех окон» — состояние per-карточка, по умолчанию включено.
+    private var pinnedOnTop: [String: Bool] = [:]
 
     public override init() {
         super.init()
@@ -21,7 +25,7 @@ public final class DetachedCardWindowManager: NSObject {
         if let existing = windows[slot] {
             onCloseHandlers[slot] = onClose
             apply(card: card, to: existing, slotKey: slot)
-            existing.makeKeyAndOrderFront(nil)
+            existing.orderFront(nil)
             return true
         }
         guard windows.count < 3 else {
@@ -48,9 +52,9 @@ public final class DetachedCardWindowManager: NSObject {
         // Полная автономность от main-окна:
         // 1) sharingType=.none — окно не попадает в screen sharing / Zoom Share
         //    Screen / QuickTime запись, даже если идёт трансляция всего экрана.
+        //    Собеседник карточку НЕ видит никогда; toggle на это не влияет.
         panel.sharingType = .none
-        // 2) level=.floating — всегда поверх остальных (включая Zoom, Telemost,
-        //    браузеры). Не отнимает фокус, просто всегда видно.
+        // 2) level управляется per-карточка кнопкой-пином (см. setPinned).
         panel.level = .floating
         // 3) collectionBehavior — окно видно во всех Spaces, не сворачивается
         //    с .app, остаётся при full-screen других окон, не показывается
@@ -65,6 +69,7 @@ public final class DetachedCardWindowManager: NSObject {
 
         windows[slot] = window
         onCloseHandlers[slot] = onClose
+        pinnedOnTop[slot] = pinnedOnTop[slot] ?? true
         apply(card: card, to: window, slotKey: slot)
 
         NotificationCenter.default.addObserver(
@@ -74,8 +79,15 @@ public final class DetachedCardWindowManager: NSObject {
             object: window
         )
 
-        window.center()
-        window.makeKeyAndOrderFront(nil)
+        // Позиция запоминается per-слот между запусками: расставил карточки
+        // один раз — дальше каждая открывается там, где её оставили.
+        let autosaveName = "aimc-detached-card-\(slot)"
+        let restored = window.setFrameUsingName(autosaveName)
+        window.setFrameAutosaveName(autosaveName)
+        if !restored {
+            window.center()
+        }
+        window.orderFront(nil)
         return true
     }
 
@@ -89,6 +101,8 @@ public final class DetachedCardWindowManager: NSObject {
         if let window = windows[slotKey] {
             NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
             windows.removeValue(forKey: slotKey)
+            hostingViews.removeValue(forKey: slotKey)
+            lastCards.removeValue(forKey: slotKey)
             window.orderOut(nil)
             window.close()
         }
@@ -104,11 +118,29 @@ public final class DetachedCardWindowManager: NSObject {
         }
     }
 
+    /// Переключает «поверх всех окон» для конкретной карточки.
+    /// На видимость при демонстрации экрана НЕ влияет — sharingType=.none
+    /// всегда, собеседник карточку не видит в любом режиме.
+    public func setPinned(_ pinned: Bool, slotKey: String) {
+        pinnedOnTop[slotKey] = pinned
+        guard let window = windows[slotKey] else { return }
+        window.level = pinned ? .floating : .normal
+        if pinned {
+            window.orderFront(nil)
+        }
+        // Перерисовываем контент, чтобы кнопка-пин отразила состояние.
+        if let card = lastCards[slotKey] {
+            apply(card: card, to: window, slotKey: slotKey)
+        }
+    }
+
     @objc private func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         guard let pair = windows.first(where: { $0.value === window }) else { return }
         let key = pair.key
         windows.removeValue(forKey: key)
+        hostingViews.removeValue(forKey: key)
+        lastCards.removeValue(forKey: key)
         if let handler = onCloseHandlers.removeValue(forKey: key) {
             handler()
         }
@@ -119,16 +151,38 @@ public final class DetachedCardWindowManager: NSObject {
 
     private func apply(card: InsightCard, to window: NSWindow, slotKey: String) {
         window.title = "Карточка — \(card.agentName ?? "Оркестратор")"
+        lastCards[slotKey] = card
         let closeAction: () -> Void = { [weak self] in
             self?.close(slotKey: slotKey)
         }
-        let root = DetachedInsightCardView(card: card, fontSize: currentFontSize, onClose: closeAction)
+        let isPinned = pinnedOnTop[slotKey] ?? true
+        let togglePin: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.setPinned(!(self.pinnedOnTop[slotKey] ?? true), slotKey: slotKey)
+        }
+        let root = AnyView(
+            DetachedInsightCardView(
+                card: card,
+                fontSize: currentFontSize,
+                isPinnedOnTop: isPinned,
+                onTogglePin: togglePin,
+                onClose: closeAction
+            )
             .environment(\.colorScheme, .light)
             .preferredColorScheme(.light)
-        let hostingView = NSHostingView(rootView: root)
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0).cgColor
-        window.contentView = hostingView
+        )
+
+        // Переиспользуем hosting view: пересоздание на каждый streaming-чанк
+        // сбрасывало скролл и выделение текста каждые ~300мс.
+        if let hosting = hostingViews[slotKey], window.contentView === hosting {
+            hosting.rootView = root
+        } else {
+            let hostingView = NSHostingView(rootView: root)
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = NSColor(calibratedRed: 0.97, green: 0.94, blue: 0.88, alpha: 1.0).cgColor
+            hostingViews[slotKey] = hostingView
+            window.contentView = hostingView
+        }
     }
 
     private func slotKey(for card: InsightCard) -> String {
