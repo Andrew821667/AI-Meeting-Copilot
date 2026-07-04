@@ -38,6 +38,9 @@ class Profile:
     # снапшоту можно поставить "deepseek-v4-flash" (быстрее) или
     # "deepseek-v4-pro" (точнее, дороже).
     deepseek_model: str = "deepseek-chat"
+    # Ассистенты, включаемые из UI по ходу сессии.
+    orchestrator_agent_enabled: bool = True
+    psychologist_agent_enabled: bool = False
 
 
 def _negotiation() -> Profile:
@@ -222,6 +225,8 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         force_answer_mode=bool(overrides.get("force_answer_mode", profile.force_answer_mode)),
         llm_provider=str(overrides.get("llm_provider", profile.llm_provider) or "deepseek"),
         deepseek_model=str(overrides.get("deepseek_model", profile.deepseek_model) or "deepseek-chat"),
+        orchestrator_agent_enabled=bool(overrides.get("orchestrator_agent_enabled", profile.orchestrator_agent_enabled)),
+        psychologist_agent_enabled=bool(overrides.get("psychologist_agent_enabled", profile.psychologist_agent_enabled)),
     )
 
 
@@ -238,4 +243,6 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "force_answer_mode": profile.force_answer_mode,
         "llm_provider": profile.llm_provider,
         "deepseek_model": profile.deepseek_model,
+        "orchestrator_agent_enabled": profile.orchestrator_agent_enabled,
+        "psychologist_agent_enabled": profile.psychologist_agent_enabled,
     }

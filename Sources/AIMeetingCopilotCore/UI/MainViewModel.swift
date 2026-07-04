@@ -93,6 +93,8 @@ public final class MainViewModel: ObservableObject {
     private let backendProcessManager = BackendProcessManager()
     private let udsClient = UDSEventClient()
     public let memoryViewModel = MemoryViewModel()
+    public let transcriptWindowManager = TranscriptWindowManager()
+    @Published public private(set) var transcriptWindowOpen = false
     private let historyStore = SessionHistoryStore()
     private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
@@ -421,6 +423,25 @@ public extension MainViewModel {
         profileSettings.forceAnswerMode.toggle()
         persistForceMode(profileSettings.forceAnswerMode, for: selectedProfileID)
         sendProfileOverridesUpdateIfNeeded()
+    }
+
+    func toggleOrchestratorAgent() {
+        profileSettings.orchestratorAgentEnabled.toggle()
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
+    func togglePsychologistAgent() {
+        profileSettings.psychologistAgentEnabled.toggle()
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
+    func toggleTranscriptWindow() {
+        if transcriptWindowManager.onStateChange == nil {
+            transcriptWindowManager.onStateChange = { [weak self] open in
+                self?.transcriptWindowOpen = open
+            }
+        }
+        transcriptWindowManager.toggle(viewModel: self)
     }
 
     func refreshPermissions() {

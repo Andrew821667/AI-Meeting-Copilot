@@ -317,6 +317,8 @@ public struct ContentView: View {
                     levelsView
                 }
             }
+
+            assistantTogglesRow
         }
     }
 
@@ -474,6 +476,47 @@ public struct ContentView: View {
                   ? Color(red: 0.27, green: 0.43, blue: 0.32)
                   : Color(red: 0.58, green: 0.53, blue: 0.46))
             .help("Включает использование пользовательской памяти при ответах LLM. Подробные настройки — File → «Контекст и память…» (⇧⌘M).")
+        }
+    }
+
+    // Тумблеры ассистентов: включаются/выключаются на лету, действуют
+    // немедленно (profile_update уходит в активную сессию).
+    private var assistantTogglesRow: some View {
+        HStack(spacing: 8) {
+            Text("Ассистенты:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button(viewModel.profileSettings.orchestratorAgentEnabled
+                   ? "Оркестратор: ВКЛ" : "Оркестратор: ВЫКЛ") {
+                viewModel.toggleOrchestratorAgent()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(viewModel.profileSettings.orchestratorAgentEnabled
+                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
+            .help("Главная карточка-подсказка: практический совет + осторожный/уверенный варианты ответа по триггерам разговора")
+
+            Button(viewModel.profileSettings.psychologistAgentEnabled
+                   ? "Психолог: ВКЛ" : "Психолог: ВЫКЛ") {
+                viewModel.togglePsychologistAgent()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(viewModel.profileSettings.psychologistAgentEnabled
+                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
+            .help("Анализ психологии собеседника: эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее")
+
+            Spacer()
+
+            Button(viewModel.transcriptWindowOpen
+                   ? "Транскрипция: отдельное окно ✓"
+                   : "Транскрипция в отдельное окно") {
+                viewModel.toggleTranscriptWindow()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Вытащить живую транскрипцию в самостоятельное окно: свободное размещение, «поверх всех окон» по кнопке-пину, невидима при демонстрации экрана")
         }
     }
 

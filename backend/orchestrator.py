@@ -218,8 +218,19 @@ class TriggerOrchestrator:
 
         context = self.raw_buffer.recent_text(max_items=20)
         trigger_reason = self._build_trigger_reason(segment=segment, score=score)
+        # Состав ассистентов управляется тумблерами в UI (profile overrides).
+        # Психолог долго был определён, но не подключён — теперь включается
+        # отдельной кнопкой и анализирует давление/эмоции поверх Оркестратора.
+        agent_profiles: list[tuple[str, str]] = []
+        if self.profile.orchestrator_agent_enabled:
+            agent_profiles.append(self.MAIN_AGENT_PROFILE)
+        if self.profile.psychologist_agent_enabled:
+            agent_profiles.append(self.PSYCHOLOGIST_AGENT_PROFILE)
+        if not agent_profiles:
+            return cards
+
         generated = await self._generate_cards_for_profiles(
-            profiles=[self.MAIN_AGENT_PROFILE],
+            profiles=agent_profiles,
             speaker=segment.speaker,
             trigger_reason=trigger_reason,
             context=context,

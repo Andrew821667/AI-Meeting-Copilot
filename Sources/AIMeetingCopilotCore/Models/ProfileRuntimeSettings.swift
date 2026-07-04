@@ -12,6 +12,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var meetingSubMode: String?
     public var llmProvider: String?
     public var deepseekModel: String?
+    public var orchestratorAgentEnabled: Bool
+    public var psychologistAgentEnabled: Bool
 
     public init(
         threshold: Double,
@@ -24,7 +26,9 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         systemAudioPath: String? = nil,
         meetingSubMode: String? = nil,
         llmProvider: String? = nil,
-        deepseekModel: String? = nil
+        deepseekModel: String? = nil,
+        orchestratorAgentEnabled: Bool = true,
+        psychologistAgentEnabled: Bool = false
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -37,6 +41,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.meetingSubMode = meetingSubMode
         self.llmProvider = llmProvider
         self.deepseekModel = deepseekModel
+        self.orchestratorAgentEnabled = orchestratorAgentEnabled
+        self.psychologistAgentEnabled = psychologistAgentEnabled
     }
 
     enum CodingKeys: String, CodingKey {
@@ -51,6 +57,26 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case meetingSubMode = "meeting_sub_mode"
         case llmProvider = "llm_provider"
         case deepseekModel = "deepseek_model"
+        case orchestratorAgentEnabled = "orchestrator_agent_enabled"
+        case psychologistAgentEnabled = "psychologist_agent_enabled"
+    }
+
+    // Кастомный decode: старые сохранённые настройки не содержат новых полей.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        threshold = try c.decode(Double.self, forKey: .threshold)
+        cooldownSec = try c.decode(Double.self, forKey: .cooldownSec)
+        maxCardsPer10Min = try c.decode(Int.self, forKey: .maxCardsPer10Min)
+        minPauseSec = try c.decode(Double.self, forKey: .minPauseSec)
+        minContextMin = try c.decode(Int.self, forKey: .minContextMin)
+        forceAnswerMode = try c.decodeIfPresent(Bool.self, forKey: .forceAnswerMode) ?? false
+        micAudioPath = try c.decodeIfPresent(String.self, forKey: .micAudioPath)
+        systemAudioPath = try c.decodeIfPresent(String.self, forKey: .systemAudioPath)
+        meetingSubMode = try c.decodeIfPresent(String.self, forKey: .meetingSubMode)
+        llmProvider = try c.decodeIfPresent(String.self, forKey: .llmProvider)
+        deepseekModel = try c.decodeIfPresent(String.self, forKey: .deepseekModel)
+        orchestratorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .orchestratorAgentEnabled) ?? true
+        psychologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .psychologistAgentEnabled) ?? false
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {
