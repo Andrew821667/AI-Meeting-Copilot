@@ -14,6 +14,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var deepseekModel: String?
     public var orchestratorAgentEnabled: Bool
     public var psychologistAgentEnabled: Bool
+    public var translatorAgentEnabled: Bool
 
     public init(
         threshold: Double,
@@ -28,7 +29,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         llmProvider: String? = nil,
         deepseekModel: String? = nil,
         orchestratorAgentEnabled: Bool = true,
-        psychologistAgentEnabled: Bool = false
+        psychologistAgentEnabled: Bool = false,
+        translatorAgentEnabled: Bool = false
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -43,6 +45,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.deepseekModel = deepseekModel
         self.orchestratorAgentEnabled = orchestratorAgentEnabled
         self.psychologistAgentEnabled = psychologistAgentEnabled
+        self.translatorAgentEnabled = translatorAgentEnabled
     }
 
     enum CodingKeys: String, CodingKey {
@@ -59,6 +62,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case deepseekModel = "deepseek_model"
         case orchestratorAgentEnabled = "orchestrator_agent_enabled"
         case psychologistAgentEnabled = "psychologist_agent_enabled"
+        case translatorAgentEnabled = "translator_agent_enabled"
     }
 
     // Кастомный decode: старые сохранённые настройки не содержат новых полей.
@@ -77,6 +81,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         deepseekModel = try c.decodeIfPresent(String.self, forKey: .deepseekModel)
         orchestratorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .orchestratorAgentEnabled) ?? true
         psychologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .psychologistAgentEnabled) ?? false
+        translatorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .translatorAgentEnabled) ?? false
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

@@ -507,6 +507,16 @@ public struct ContentView: View {
                   ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
             .help("Анализ психологии собеседника: эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее")
 
+            Button(viewModel.profileSettings.translatorAgentEnabled
+                   ? "Переводчик: ВКЛ" : "Переводчик: ВЫКЛ") {
+                viewModel.toggleTranslatorAgent()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(viewModel.profileSettings.translatorAgentEnabled
+                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
+            .help("Локальный офлайн-перевод ваших реплик (RU→EN) в реальном времени — читайте перевод вслух собеседнику. Модель NLLB, ставится один раз: ./tools/setup_translator.sh")
+
             Spacer()
 
             Button(viewModel.transcriptWindowOpen

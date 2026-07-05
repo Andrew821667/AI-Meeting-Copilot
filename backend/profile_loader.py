@@ -41,6 +41,7 @@ class Profile:
     # Ассистенты, включаемые из UI по ходу сессии.
     orchestrator_agent_enabled: bool = True
     psychologist_agent_enabled: bool = False
+    translator_agent_enabled: bool = False
 
 
 def _negotiation() -> Profile:
@@ -227,6 +228,7 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         deepseek_model=str(overrides.get("deepseek_model", profile.deepseek_model) or "deepseek-chat"),
         orchestrator_agent_enabled=bool(overrides.get("orchestrator_agent_enabled", profile.orchestrator_agent_enabled)),
         psychologist_agent_enabled=bool(overrides.get("psychologist_agent_enabled", profile.psychologist_agent_enabled)),
+        translator_agent_enabled=bool(overrides.get("translator_agent_enabled", profile.translator_agent_enabled)),
     )
 
 
@@ -245,4 +247,5 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "deepseek_model": profile.deepseek_model,
         "orchestrator_agent_enabled": profile.orchestrator_agent_enabled,
         "psychologist_agent_enabled": profile.psychologist_agent_enabled,
+        "translator_agent_enabled": profile.translator_agent_enabled,
     }

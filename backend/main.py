@@ -33,6 +33,7 @@ from profile_loader import apply_overrides, load_profile, profile_runtime_settin
 from session_export import export_session_json
 from session_history_store import SessionHistoryStore
 from telemetry import TelemetryCollector
+from translator import LocalTranslator, model_available as translator_model_available
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -186,6 +187,8 @@ class SessionRuntime:
         self.memory_block: str = ""
         self.memory_hub = MemoryHubClient()
         self.memory_settings_cache: MemorySettings = load_memory_settings()
+        self.translator = LocalTranslator()
+        self.translation_history: list[tuple[str, str]] = []  # (оригинал, перевод)
         self.diarizer = None  # OnlineSpeakerDiarizer, created on demand
 
         self.transcript: list[TranscriptSegment] = []
@@ -197,6 +200,7 @@ class SessionRuntime:
         self.ended_at = 0.0
         self.active = True
         self.force_qa_history = []
+        self.translation_history = []
         self.reload_memory_block()
 
         self.profile = apply_overrides(load_profile(profile), profile_overrides)
@@ -452,6 +456,14 @@ class BackendServer:
             )
             if seg.isFinal:
                 self.runtime.transcript.append(seg)
+                # Ассистент «Переводчик»: переводим финальные фразы пользователя
+                # (ME) локальной NLLB в фоне, чтобы не блокировать транскрипцию.
+                if (self.runtime.profile.translator_agent_enabled
+                        and seg.speaker == "ME"
+                        and len(seg.text.strip()) >= 2):
+                    t_task = asyncio.create_task(self._bg_translate(seg))
+                    self._bg_tasks.add(t_task)
+                    t_task.add_done_callback(self._bg_tasks.discard)
 
             # В force mode генерируем ответ LLM в фоне, чтобы не блокировать транскрипцию.
             orch = self.runtime.orchestrator
@@ -552,6 +564,58 @@ class BackendServer:
     # запрос к DeepSeek. Дальше LLM начинает терять фокус, отвечает медленнее
     # и стоит ощутимо дороже. Старые пары вытесняются по FIFO.
     FORCE_HISTORY_MAX_PAIRS = 30
+
+    async def _bg_translate(self, seg: TranscriptSegment) -> None:
+        """Перевод фразы локальной NLLB → накопительная карточка «Переводчик».
+        Новые фразы СВЕРХУ — их читают вслух, они должны быть на виду."""
+        try:
+            if not translator_model_available() and not self.runtime.translator.ready:
+                card = InsightCard(
+                    id="slot::переводчик",
+                    scenario=self.runtime.profile.id,
+                    speaker=seg.speaker,
+                    trigger_reason="Переводчик",
+                    insight=("Модель перевода не установлена.\n"
+                             "Запусти в терминале: ./tools/setup_translator.sh\n"
+                             "(~1.4GB скачивания, один раз)"),
+                    reply_cautious="", reply_confident="",
+                    severity="warning", is_fallback=True,
+                    agent_name="Переводчик", card_mode="direct_answer",
+                    timestamp=time.time(),
+                    source_ts_end=seg.tsEnd,
+                )
+                await self._send_cards_async([card])
+                return
+
+            result = await asyncio.to_thread(self.runtime.translator.translate, seg.text)
+            if result is None:
+                return
+            translated, src, _tgt = result
+            flag_src = "🇷🇺" if src == "ru" else "🇬🇧"
+            flag_tgt = "🇬🇧" if src == "ru" else "🇷🇺"
+            self.runtime.translation_history.insert(0, (seg.text.strip(), translated))
+            del self.runtime.translation_history[30:]
+
+            blocks = [
+                f"{flag_src} {orig}\n{flag_tgt} {trans}" if i == 0
+                else f"— {orig}\n→ {trans}"
+                for i, (orig, trans) in enumerate(self.runtime.translation_history)
+            ]
+            card = InsightCard(
+                id="slot::переводчик",
+                scenario=self.runtime.profile.id,
+                speaker=seg.speaker,
+                trigger_reason="Переводчик (локальная NLLB)",
+                insight="\n\n────────\n\n".join(blocks),
+                reply_cautious="", reply_confident="",
+                severity="info", is_fallback=False,
+                agent_name="Переводчик", card_mode="direct_answer",
+                timestamp=time.time(),
+                source_ts_end=seg.tsEnd,
+            )
+            await self._send_cards_async([card])
+        except Exception:
+            logger.exception("translator: background translation failed")
 
     def _render_force_history(self) -> str:
         if not self.runtime.force_qa_history:

@@ -435,6 +435,11 @@ public extension MainViewModel {
         sendProfileOverridesUpdateIfNeeded()
     }
 
+    func toggleTranslatorAgent() {
+        profileSettings.translatorAgentEnabled.toggle()
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
     func toggleTranscriptWindow() {
         if transcriptWindowManager.onStateChange == nil {
             transcriptWindowManager.onStateChange = { [weak self] open in
