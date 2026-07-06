@@ -255,6 +255,10 @@ public struct ContentView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
+            // Кнопки ассистентов — всегда наверху, до блока разрешений, чтобы
+            // их было видно при любом состоянии (иначе чеклист их оттесняет).
+            assistantTogglesRow
+
             if viewModel.hasPendingPermissionItems {
                 OnboardingChecklistView(viewModel: viewModel)
             }
@@ -317,8 +321,6 @@ public struct ContentView: View {
                     levelsView
                 }
             }
-
-            assistantTogglesRow
         }
     }
 
@@ -479,55 +481,65 @@ public struct ContentView: View {
         }
     }
 
-    // Тумблеры ассистентов: включаются/выключаются на лету, действуют
-    // немедленно (profile_update уходит в активную сессию).
+    // Ассистенты: крупные заметные кнопки — каждая открывает отдельное окно
+    // ассистента (и включает его). Действуют на лету в активной сессии.
     private var assistantTogglesRow: some View {
-        HStack(spacing: 8) {
-            Text("Ассистенты:")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            Text("Ассистенты — открыть окно:")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(red: 0.33, green: 0.20, blue: 0.13))
 
-            Button(viewModel.orchestratorWindowOpen
-                   ? "Оркестратор: окно ✓" : "Оркестратор") {
-                viewModel.toggleOrchestratorAgent()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(viewModel.orchestratorWindowOpen
-                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Включает ассистента и открывает его отдельное окно: практический совет + осторожный/уверенный варианты ответа по триггерам разговора. Окно невидимо при демонстрации экрана.")
+            assistantButton(
+                title: "Оркестратор",
+                isOpen: viewModel.orchestratorWindowOpen,
+                action: viewModel.toggleOrchestratorAgent,
+                help: "Открывает отдельное окно ассистента: практический совет + осторожный/уверенный варианты ответа по триггерам разговора. Окно невидимо при демонстрации экрана.")
 
-            Button(viewModel.psychologistWindowOpen
-                   ? "Психолог: окно ✓" : "Психолог") {
-                viewModel.togglePsychologistAgent()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(viewModel.psychologistWindowOpen
-                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Включает ассистента и открывает его отдельное окно: анализ психологии собеседника — эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее.")
+            assistantButton(
+                title: "Психолог",
+                isOpen: viewModel.psychologistWindowOpen,
+                action: viewModel.togglePsychologistAgent,
+                help: "Открывает отдельное окно ассистента: анализ психологии собеседника — эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее.")
 
-            Button(viewModel.translatorWindowOpen
-                   ? "Переводчик: окно ✓" : "Переводчик") {
-                viewModel.toggleTranslatorAgent()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(viewModel.translatorWindowOpen
-                  ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Включает ассистента и открывает его отдельное окно: локальный офлайн-перевод ваших реплик в выбранный язык общения (меню «Переводчик»). Окно невидимо при демонстрации экрана. Модель ставится один раз: ./tools/setup_translator.sh")
+            assistantButton(
+                title: "Переводчик",
+                isOpen: viewModel.translatorWindowOpen,
+                action: viewModel.toggleTranslatorAgent,
+                help: "Открывает отдельное окно ассистента: локальный офлайн-перевод ваших реплик в выбранный язык общения (меню «Переводчик»). Окно невидимо при демонстрации экрана. Модель ставится один раз: ./tools/setup_translator.sh")
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            Button(viewModel.transcriptWindowOpen
-                   ? "Транскрипция: отдельное окно ✓"
-                   : "Транскрипция в отдельное окно") {
+            Button {
                 viewModel.toggleTranscriptWindow()
+            } label: {
+                Label(viewModel.transcriptWindowOpen ? "Транскрипция ✓" : "Транскрипция",
+                      systemImage: "text.bubble")
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.regular)
             .help("Вытащить живую транскрипцию в самостоятельное окно: свободное размещение, «поверх всех окон» по кнопке-пину, невидима при демонстрации экрана")
         }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 0.93, green: 0.87, blue: 0.76))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func assistantButton(
+        title: String, isOpen: Bool, action: @escaping () -> Void, help: String
+    ) -> some View {
+        Button(action: action) {
+            Label(isOpen ? "\(title): окно ✓" : title,
+                  systemImage: isOpen ? "macwindow.on.rectangle" : "macwindow")
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.regular)
+        .tint(isOpen
+              ? Color(red: 0.45, green: 0.30, blue: 0.16)
+              : Color(red: 0.56, green: 0.46, blue: 0.33))
+        .help(help)
     }
 
     private var memoryModeLabel: String {
