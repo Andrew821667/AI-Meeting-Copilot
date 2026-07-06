@@ -213,8 +213,8 @@ struct AIMeetingCopilotDesktopApp: App {
             }
 
             CommandMenu("Переводчик") {
-                Button(viewModel.profileSettings.translatorAgentEnabled
-                       ? "Переводчик: ВКЛ" : "Переводчик: ВЫКЛ") {
+                Button(viewModel.translatorWindowOpen
+                       ? "Переводчик: окно открыто ✓" : "Открыть окно переводчика") {
                     viewModel.toggleTranslatorAgent()
                 }
 

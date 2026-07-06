@@ -487,35 +487,35 @@ public struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button(viewModel.profileSettings.orchestratorAgentEnabled
-                   ? "Оркестратор: ВКЛ" : "Оркестратор: ВЫКЛ") {
+            Button(viewModel.orchestratorWindowOpen
+                   ? "Оркестратор: окно ✓" : "Оркестратор") {
                 viewModel.toggleOrchestratorAgent()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .tint(viewModel.profileSettings.orchestratorAgentEnabled
+            .tint(viewModel.orchestratorWindowOpen
                   ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Главная карточка-подсказка: практический совет + осторожный/уверенный варианты ответа по триггерам разговора")
+            .help("Включает ассистента и открывает его отдельное окно: практический совет + осторожный/уверенный варианты ответа по триггерам разговора. Окно невидимо при демонстрации экрана.")
 
-            Button(viewModel.profileSettings.psychologistAgentEnabled
-                   ? "Психолог: ВКЛ" : "Психолог: ВЫКЛ") {
+            Button(viewModel.psychologistWindowOpen
+                   ? "Психолог: окно ✓" : "Психолог") {
                 viewModel.togglePsychologistAgent()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .tint(viewModel.profileSettings.psychologistAgentEnabled
+            .tint(viewModel.psychologistWindowOpen
                   ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Анализ психологии собеседника: эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее")
+            .help("Включает ассистента и открывает его отдельное окно: анализ психологии собеседника — эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее.")
 
-            Button(viewModel.profileSettings.translatorAgentEnabled
-                   ? "Переводчик: ВКЛ" : "Переводчик: ВЫКЛ") {
+            Button(viewModel.translatorWindowOpen
+                   ? "Переводчик: окно ✓" : "Переводчик") {
                 viewModel.toggleTranslatorAgent()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .tint(viewModel.profileSettings.translatorAgentEnabled
+            .tint(viewModel.translatorWindowOpen
                   ? Color(red: 0.40, green: 0.31, blue: 0.23) : .gray)
-            .help("Локальный офлайн-перевод ваших реплик (RU→EN) в реальном времени — читайте перевод вслух собеседнику. Модель NLLB, ставится один раз: ./tools/setup_translator.sh")
+            .help("Включает ассистента и открывает его отдельное окно: локальный офлайн-перевод ваших реплик в выбранный язык общения (меню «Переводчик»). Окно невидимо при демонстрации экрана. Модель ставится один раз: ./tools/setup_translator.sh")
 
             Spacer()
 

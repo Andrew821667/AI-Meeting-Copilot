@@ -95,6 +95,18 @@ public final class MainViewModel: ObservableObject {
     public let memoryViewModel = MemoryViewModel()
     public let transcriptWindowManager = TranscriptWindowManager()
     @Published public private(set) var transcriptWindowOpen = false
+
+    // Отдельные окна ассистентов (живой поток карточек каждого).
+    public let orchestratorWindow = AssistantWindowManager(
+        title: "Оркестратор", agentName: "Оркестратор", autosaveName: "aimc-assistant-orchestrator")
+    public let psychologistWindow = AssistantWindowManager(
+        title: "Психолог", agentName: "Психолог", autosaveName: "aimc-assistant-psychologist")
+    public let translatorWindow = AssistantWindowManager(
+        title: "Переводчик", agentName: "Переводчик", autosaveName: "aimc-assistant-translator")
+    private var assistantWindowsWired = false
+    @Published public private(set) var orchestratorWindowOpen = false
+    @Published public private(set) var psychologistWindowOpen = false
+    @Published public private(set) var translatorWindowOpen = false
     private let historyStore = SessionHistoryStore()
     private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
@@ -127,6 +139,8 @@ public final class MainViewModel: ObservableObject {
         onboardingReady = false
         profileSettings = .defaults(for: selectedProfileID)
         profileSettings.forceAnswerMode = loadPersistedForceMode(for: selectedProfileID)
+        // Ассистенты в оконной модели: включаются кнопкой (открывает окно).
+        reconcileAssistantFlagsWithWindows()
         sessionHistory = historyStore.loadHistory()
         latestSavedCards = savedCardStore.loadLatest(limit: 50)
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
@@ -222,6 +236,7 @@ public final class MainViewModel: ObservableObject {
                 }
                 self.profileSettings = .defaults(for: profileID)
                 self.profileSettings.forceAnswerMode = self.loadPersistedForceMode(for: profileID)
+                self.reconcileAssistantFlagsWithWindows()
                 self.reloadExcludedPhrases()
             }
             .store(in: &cancellables)
@@ -425,20 +440,55 @@ public extension MainViewModel {
         sendProfileOverridesUpdateIfNeeded()
     }
 
-    func toggleOrchestratorAgent() {
-        profileSettings.orchestratorAgentEnabled.toggle()
+    // Кнопка ассистента = его окно: открыть окно → включить ассистента,
+    // закрыть окно (кнопкой или крестиком) → выключить. Источник истины —
+    // состояние окна; флаг «включён» и подсветка кнопки следуют за ним.
+    private func wireAssistantWindowsIfNeeded() {
+        guard !assistantWindowsWired else { return }
+        assistantWindowsWired = true
+        orchestratorWindow.onStateChange = { [weak self] open in
+            self?.orchestratorWindowOpen = open
+            self?.syncAssistantEnabled(\.orchestratorAgentEnabled, open)
+        }
+        psychologistWindow.onStateChange = { [weak self] open in
+            self?.psychologistWindowOpen = open
+            self?.syncAssistantEnabled(\.psychologistAgentEnabled, open)
+        }
+        translatorWindow.onStateChange = { [weak self] open in
+            self?.translatorWindowOpen = open
+            self?.syncAssistantEnabled(\.translatorAgentEnabled, open)
+        }
+    }
+
+    private func syncAssistantEnabled(
+        _ keyPath: WritableKeyPath<ProfileRuntimeSettings, Bool>, _ enabled: Bool
+    ) {
+        guard profileSettings[keyPath: keyPath] != enabled else { return }
+        profileSettings[keyPath: keyPath] = enabled
         sendProfileOverridesUpdateIfNeeded()
     }
 
-    func togglePsychologistAgent() {
-        profileSettings.psychologistAgentEnabled.toggle()
-        sendProfileOverridesUpdateIfNeeded()
+    // Приводит флаги ассистентов к фактическому состоянию их окон. Вызывается
+    // после каждой переустановки profileSettings из .defaults (смена профиля,
+    // сброс сессии), т.к. defaults ставит orchestrator=on — а истина у окон.
+    private func reconcileAssistantFlagsWithWindows() {
+        profileSettings.orchestratorAgentEnabled = orchestratorWindow.isOpen
+        profileSettings.psychologistAgentEnabled = psychologistWindow.isOpen
+        profileSettings.translatorAgentEnabled = translatorWindow.isOpen
     }
 
-    func toggleTranslatorAgent() {
-        profileSettings.translatorAgentEnabled.toggle()
-        sendProfileOverridesUpdateIfNeeded()
+    private func toggleAssistant(window: AssistantWindowManager) {
+        wireAssistantWindowsIfNeeded()
+        if window.isOpen {
+            window.close()
+        } else {
+            window.open(viewModel: self)
+        }
     }
+
+    func toggleOrchestratorAgent() { toggleAssistant(window: orchestratorWindow) }
+    func togglePsychologistAgent() { toggleAssistant(window: psychologistWindow) }
+    func toggleTranslatorAgent() { toggleAssistant(window: translatorWindow) }
 
     // Языки общения для переводчика: код NLLB-ключа + подпись для меню.
     // Моя речь переводится в выбранный язык, чтобы прочесть его вслух.
@@ -560,6 +610,7 @@ public extension MainViewModel {
     func resetProfileSettingsToDefaults() {
         profileSettings = .defaults(for: selectedProfileID)
         profileSettings.forceAnswerMode = loadPersistedForceMode(for: selectedProfileID)
+        reconcileAssistantFlagsWithWindows()
     }
 
     func refreshCalendarSuggestion(autoApply: Bool = false) {
@@ -1158,6 +1209,7 @@ private extension MainViewModel {
         selectedProfileID = suggested
         profileSettings = .defaults(for: suggested)
         profileSettings.forceAnswerMode = loadPersistedForceMode(for: suggested)
+        reconcileAssistantFlagsWithWindows()
         isApplyingCalendarSuggestion = false
 
         let profileTitle = ProfileOption.title(for: suggested)
