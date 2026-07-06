@@ -25,6 +25,23 @@ HF_TOKENIZER_ID = "facebook/nllb-200-distilled-1.3B"
 RU = "rus_Cyrl"
 EN = "eng_Latn"
 
+# Язык общения (target перевода моей речи) → (код NLLB, флаг). Ключи
+# совпадают с UI-меню «Переводчик → Язык общения».
+LANG_CODES: dict[str, tuple[str, str]] = {
+    "en": ("eng_Latn", "🇬🇧"),
+    "ru": ("rus_Cyrl", "🇷🇺"),
+    "de": ("deu_Latn", "🇩🇪"),
+    "fr": ("fra_Latn", "🇫🇷"),
+    "es": ("spa_Latn", "🇪🇸"),
+    "it": ("ita_Latn", "🇮🇹"),
+    "zh": ("zho_Hans", "🇨🇳"),
+}
+DEFAULT_TARGET = "en"
+
+
+def lang_flag(key: str) -> str:
+    return LANG_CODES.get(key, ("", "🏳️"))[1]
+
 
 def model_dir() -> Path:
     explicit = os.environ.get("AIMC_NLLB_MODEL_DIR", "").strip()
@@ -105,16 +122,26 @@ class LocalTranslator:
                 self._tokenizer = None
                 return False
 
-    def translate(self, text: str) -> tuple[str, str, str] | None:
-        """Возвращает (перевод, src_lang, tgt_lang) или None при ошибке."""
+    def translate(
+        self, text: str, target_lang: str = DEFAULT_TARGET
+    ) -> tuple[str, str, str] | None:
+        """Переводит мою речь в язык общения `target_lang`.
+
+        Возвращает (перевод, src_key, tgt_key) или None. None означает либо
+        ошибку, либо что фраза уже на языке общения (переводить нечего)."""
         stripped = text.strip()
         if not stripped:
             return None
+        if target_lang not in LANG_CODES:
+            target_lang = DEFAULT_TARGET
         if not self._ensure_loaded():
             return None
 
-        src = detect_lang(stripped)
-        src_code, tgt_code = (RU, EN) if src == "ru" else (EN, RU)
+        src = detect_lang(stripped)  # "ru" / "en" по кириллице
+        if src == target_lang:
+            return None  # уже на языке общения — ничего не переводим
+        src_code = LANG_CODES[src][0]
+        tgt_code = LANG_CODES[target_lang][0]
         try:
             self._tokenizer.src_lang = src_code
             tokens = self._tokenizer.convert_ids_to_tokens(
@@ -135,7 +162,7 @@ class LocalTranslator:
             ).strip()
             if not translated:
                 return None
-            return (translated, src, "en" if src == "ru" else "ru")
+            return (translated, src, target_lang)
         except Exception:
             logger.exception("translator: translation failed")
             return None

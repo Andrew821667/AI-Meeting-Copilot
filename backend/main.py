@@ -33,7 +33,11 @@ from profile_loader import apply_overrides, load_profile, profile_runtime_settin
 from session_export import export_session_json
 from session_history_store import SessionHistoryStore
 from telemetry import TelemetryCollector
-from translator import LocalTranslator, model_available as translator_model_available
+from translator import (
+    LocalTranslator,
+    lang_flag as translator_lang_flag,
+    model_available as translator_model_available,
+)
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -587,12 +591,15 @@ class BackendServer:
                 await self._send_cards_async([card])
                 return
 
-            result = await asyncio.to_thread(self.runtime.translator.translate, seg.text)
+            target_lang = getattr(self.runtime.profile, "translator_target_lang", "en")
+            result = await asyncio.to_thread(
+                self.runtime.translator.translate, seg.text, target_lang
+            )
             if result is None:
                 return
-            translated, src, _tgt = result
-            flag_src = "🇷🇺" if src == "ru" else "🇬🇧"
-            flag_tgt = "🇬🇧" if src == "ru" else "🇷🇺"
+            translated, src, tgt = result
+            flag_src = translator_lang_flag(src)
+            flag_tgt = translator_lang_flag(tgt)
             self.runtime.translation_history.insert(0, (seg.text.strip(), translated))
             del self.runtime.translation_history[30:]
 

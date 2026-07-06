@@ -440,6 +440,24 @@ public extension MainViewModel {
         sendProfileOverridesUpdateIfNeeded()
     }
 
+    // Языки общения для переводчика: код NLLB-ключа + подпись для меню.
+    // Моя речь переводится в выбранный язык, чтобы прочесть его вслух.
+    static let translatorLanguages: [(code: String, label: String)] = [
+        ("en", "🇬🇧 Английский"),
+        ("ru", "🇷🇺 Русский"),
+        ("de", "🇩🇪 Немецкий"),
+        ("fr", "🇫🇷 Французский"),
+        ("es", "🇪🇸 Испанский"),
+        ("it", "🇮🇹 Итальянский"),
+        ("zh", "🇨🇳 Китайский"),
+    ]
+
+    func setTranslatorTargetLang(_ code: String) {
+        guard profileSettings.translatorTargetLang != code else { return }
+        profileSettings.translatorTargetLang = code
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
     func toggleTranscriptWindow() {
         if transcriptWindowManager.onStateChange == nil {
             transcriptWindowManager.onStateChange = { [weak self] open in

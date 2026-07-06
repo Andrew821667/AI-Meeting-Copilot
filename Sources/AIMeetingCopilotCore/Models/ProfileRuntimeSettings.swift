@@ -15,6 +15,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var orchestratorAgentEnabled: Bool
     public var psychologistAgentEnabled: Bool
     public var translatorAgentEnabled: Bool
+    public var translatorTargetLang: String
 
     public init(
         threshold: Double,
@@ -30,7 +31,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         deepseekModel: String? = nil,
         orchestratorAgentEnabled: Bool = true,
         psychologistAgentEnabled: Bool = false,
-        translatorAgentEnabled: Bool = false
+        translatorAgentEnabled: Bool = false,
+        translatorTargetLang: String = "en"
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -46,6 +48,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.orchestratorAgentEnabled = orchestratorAgentEnabled
         self.psychologistAgentEnabled = psychologistAgentEnabled
         self.translatorAgentEnabled = translatorAgentEnabled
+        self.translatorTargetLang = translatorTargetLang
     }
 
     enum CodingKeys: String, CodingKey {
@@ -63,6 +66,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case orchestratorAgentEnabled = "orchestrator_agent_enabled"
         case psychologistAgentEnabled = "psychologist_agent_enabled"
         case translatorAgentEnabled = "translator_agent_enabled"
+        case translatorTargetLang = "translator_target_lang"
     }
 
     // Кастомный decode: старые сохранённые настройки не содержат новых полей.
@@ -82,6 +86,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         orchestratorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .orchestratorAgentEnabled) ?? true
         psychologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .psychologistAgentEnabled) ?? false
         translatorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .translatorAgentEnabled) ?? false
+        translatorTargetLang = try c.decodeIfPresent(String.self, forKey: .translatorTargetLang) ?? "en"
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

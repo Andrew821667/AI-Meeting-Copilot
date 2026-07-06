@@ -42,6 +42,8 @@ class Profile:
     orchestrator_agent_enabled: bool = True
     psychologist_agent_enabled: bool = False
     translator_agent_enabled: bool = False
+    # Язык общения: в него переводится моя речь (чтобы прочесть вслух).
+    translator_target_lang: str = "en"
 
 
 def _negotiation() -> Profile:
@@ -229,6 +231,7 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         orchestrator_agent_enabled=bool(overrides.get("orchestrator_agent_enabled", profile.orchestrator_agent_enabled)),
         psychologist_agent_enabled=bool(overrides.get("psychologist_agent_enabled", profile.psychologist_agent_enabled)),
         translator_agent_enabled=bool(overrides.get("translator_agent_enabled", profile.translator_agent_enabled)),
+        translator_target_lang=str(overrides.get("translator_target_lang", profile.translator_target_lang) or "en"),
     )
 
 
@@ -248,4 +251,5 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "orchestrator_agent_enabled": profile.orchestrator_agent_enabled,
         "psychologist_agent_enabled": profile.psychologist_agent_enabled,
         "translator_agent_enabled": profile.translator_agent_enabled,
+        "translator_target_lang": profile.translator_target_lang,
     }

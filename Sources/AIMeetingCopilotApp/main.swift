@@ -211,6 +211,27 @@ struct AIMeetingCopilotDesktopApp: App {
                     viewModel.refreshPermissionsWithProbe()
                 }
             }
+
+            CommandMenu("Переводчик") {
+                Button(viewModel.profileSettings.translatorAgentEnabled
+                       ? "Переводчик: ВКЛ" : "Переводчик: ВЫКЛ") {
+                    viewModel.toggleTranslatorAgent()
+                }
+
+                Divider()
+
+                Text("Язык общения (перевод моей речи):")
+                ForEach(MainViewModel.translatorLanguages, id: \.code) { lang in
+                    Button(action: { viewModel.setTranslatorTargetLang(lang.code) }) {
+                        // Галочка у выбранного языка.
+                        if viewModel.profileSettings.translatorTargetLang == lang.code {
+                            Label(lang.label, systemImage: "checkmark")
+                        } else {
+                            Text(lang.label)
+                        }
+                    }
+                }
+            }
         }
 
         Window("Память / Контекст", id: "memory") {
