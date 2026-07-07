@@ -114,7 +114,17 @@ if [[ "$WITH_BACKEND" -eq 1 ]]; then
   "$ROOT_DIR/tools/package_backend.sh" "$APP_BUNDLE"
 fi
 
-echo "Подпись app bundle (ad-hoc, стабильный identifier: $APP_IDENTIFIER)..."
-codesign --force --deep --sign - --identifier "$APP_IDENTIFIER" "$APP_BUNDLE"
+# Стабильная самоподписанная идентичность (если создана через
+# tools/create_signing_identity.sh) делает подпись устойчивой между
+# пересборками — macOS не сбрасывает выданные разрешения. Иначе — ad-hoc.
+SIGN_IDENTITY="${AIMC_SIGN_IDENTITY:-AIMeetingCopilot Local Signing}"
+if security find-certificate -c "$SIGN_IDENTITY" >/dev/null 2>&1; then
+  echo "Подпись app bundle стабильной идентичностью [$SIGN_IDENTITY] — разрешения не сбрасываются..."
+  codesign --force --deep --sign "$SIGN_IDENTITY" --identifier "$APP_IDENTIFIER" "$APP_BUNDLE"
+else
+  echo "Идентичность [$SIGN_IDENTITY] не найдена — ad-hoc подпись (разрешения будут сбрасываться при обновлении)."
+  echo "Создать стабильную идентичность: ./tools/create_signing_identity.sh"
+  codesign --force --deep --sign - --identifier "$APP_IDENTIFIER" "$APP_BUNDLE"
+fi
 
 echo "Готово: $APP_BUNDLE"
