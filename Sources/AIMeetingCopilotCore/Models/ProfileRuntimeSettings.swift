@@ -16,6 +16,11 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var psychologistAgentEnabled: Bool
     public var translatorAgentEnabled: Bool
     public var translatorTargetLang: String
+    public var reverseTranslatorAgentEnabled: Bool
+    public var secretaryAgentEnabled: Bool
+    public var tasksAgentEnabled: Bool
+    public var factcheckAgentEnabled: Bool
+    public var lawyerAgentEnabled: Bool
 
     public init(
         threshold: Double,
@@ -32,7 +37,12 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         orchestratorAgentEnabled: Bool = true,
         psychologistAgentEnabled: Bool = false,
         translatorAgentEnabled: Bool = false,
-        translatorTargetLang: String = "en"
+        translatorTargetLang: String = "en",
+        reverseTranslatorAgentEnabled: Bool = false,
+        secretaryAgentEnabled: Bool = false,
+        tasksAgentEnabled: Bool = false,
+        factcheckAgentEnabled: Bool = false,
+        lawyerAgentEnabled: Bool = false
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -49,6 +59,11 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.psychologistAgentEnabled = psychologistAgentEnabled
         self.translatorAgentEnabled = translatorAgentEnabled
         self.translatorTargetLang = translatorTargetLang
+        self.reverseTranslatorAgentEnabled = reverseTranslatorAgentEnabled
+        self.secretaryAgentEnabled = secretaryAgentEnabled
+        self.tasksAgentEnabled = tasksAgentEnabled
+        self.factcheckAgentEnabled = factcheckAgentEnabled
+        self.lawyerAgentEnabled = lawyerAgentEnabled
     }
 
     enum CodingKeys: String, CodingKey {
@@ -67,6 +82,11 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case psychologistAgentEnabled = "psychologist_agent_enabled"
         case translatorAgentEnabled = "translator_agent_enabled"
         case translatorTargetLang = "translator_target_lang"
+        case reverseTranslatorAgentEnabled = "reverse_translator_agent_enabled"
+        case secretaryAgentEnabled = "secretary_agent_enabled"
+        case tasksAgentEnabled = "tasks_agent_enabled"
+        case factcheckAgentEnabled = "factcheck_agent_enabled"
+        case lawyerAgentEnabled = "lawyer_agent_enabled"
     }
 
     // Кастомный decode: старые сохранённые настройки не содержат новых полей.
@@ -87,6 +107,11 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         psychologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .psychologistAgentEnabled) ?? false
         translatorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .translatorAgentEnabled) ?? false
         translatorTargetLang = try c.decodeIfPresent(String.self, forKey: .translatorTargetLang) ?? "en"
+        reverseTranslatorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .reverseTranslatorAgentEnabled) ?? false
+        secretaryAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .secretaryAgentEnabled) ?? false
+        tasksAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .tasksAgentEnabled) ?? false
+        factcheckAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .factcheckAgentEnabled) ?? false
+        lawyerAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .lawyerAgentEnabled) ?? false
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

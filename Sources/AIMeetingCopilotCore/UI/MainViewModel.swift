@@ -103,10 +103,25 @@ public final class MainViewModel: ObservableObject {
         title: "Психолог", agentName: "Психолог", autosaveName: "aimc-assistant-psychologist")
     public let translatorWindow = AssistantWindowManager(
         title: "Переводчик", agentName: "Переводчик", autosaveName: "aimc-assistant-translator")
+    public let reverseTranslatorWindow = AssistantWindowManager(
+        title: "Обратный переводчик", agentName: "Обратный переводчик", autosaveName: "aimc-assistant-rev-translator")
+    public let secretaryWindow = AssistantWindowManager(
+        title: "Секретарь", agentName: "Секретарь", autosaveName: "aimc-assistant-secretary")
+    public let tasksWindow = AssistantWindowManager(
+        title: "Задачи и договорённости", agentName: "Задачи", autosaveName: "aimc-assistant-tasks")
+    public let factcheckWindow = AssistantWindowManager(
+        title: "Факт-чекер", agentName: "Факт-чекер", autosaveName: "aimc-assistant-factcheck")
+    public let lawyerWindow = AssistantWindowManager(
+        title: "Юрист", agentName: "Юрист", autosaveName: "aimc-assistant-lawyer")
     private var assistantWindowsWired = false
     @Published public private(set) var orchestratorWindowOpen = false
     @Published public private(set) var psychologistWindowOpen = false
     @Published public private(set) var translatorWindowOpen = false
+    @Published public private(set) var reverseTranslatorWindowOpen = false
+    @Published public private(set) var secretaryWindowOpen = false
+    @Published public private(set) var tasksWindowOpen = false
+    @Published public private(set) var factcheckWindowOpen = false
+    @Published public private(set) var lawyerWindowOpen = false
     private let historyStore = SessionHistoryStore()
     private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
@@ -458,6 +473,26 @@ public extension MainViewModel {
             self?.translatorWindowOpen = open
             self?.syncAssistantEnabled(\.translatorAgentEnabled, open)
         }
+        reverseTranslatorWindow.onStateChange = { [weak self] open in
+            self?.reverseTranslatorWindowOpen = open
+            self?.syncAssistantEnabled(\.reverseTranslatorAgentEnabled, open)
+        }
+        secretaryWindow.onStateChange = { [weak self] open in
+            self?.secretaryWindowOpen = open
+            self?.syncAssistantEnabled(\.secretaryAgentEnabled, open)
+        }
+        tasksWindow.onStateChange = { [weak self] open in
+            self?.tasksWindowOpen = open
+            self?.syncAssistantEnabled(\.tasksAgentEnabled, open)
+        }
+        factcheckWindow.onStateChange = { [weak self] open in
+            self?.factcheckWindowOpen = open
+            self?.syncAssistantEnabled(\.factcheckAgentEnabled, open)
+        }
+        lawyerWindow.onStateChange = { [weak self] open in
+            self?.lawyerWindowOpen = open
+            self?.syncAssistantEnabled(\.lawyerAgentEnabled, open)
+        }
     }
 
     private func syncAssistantEnabled(
@@ -475,6 +510,11 @@ public extension MainViewModel {
         profileSettings.orchestratorAgentEnabled = orchestratorWindow.isOpen
         profileSettings.psychologistAgentEnabled = psychologistWindow.isOpen
         profileSettings.translatorAgentEnabled = translatorWindow.isOpen
+        profileSettings.reverseTranslatorAgentEnabled = reverseTranslatorWindow.isOpen
+        profileSettings.secretaryAgentEnabled = secretaryWindow.isOpen
+        profileSettings.tasksAgentEnabled = tasksWindow.isOpen
+        profileSettings.factcheckAgentEnabled = factcheckWindow.isOpen
+        profileSettings.lawyerAgentEnabled = lawyerWindow.isOpen
     }
 
     private func toggleAssistant(window: AssistantWindowManager) {
@@ -489,6 +529,11 @@ public extension MainViewModel {
     func toggleOrchestratorAgent() { toggleAssistant(window: orchestratorWindow) }
     func togglePsychologistAgent() { toggleAssistant(window: psychologistWindow) }
     func toggleTranslatorAgent() { toggleAssistant(window: translatorWindow) }
+    func toggleReverseTranslatorAgent() { toggleAssistant(window: reverseTranslatorWindow) }
+    func toggleSecretaryAgent() { toggleAssistant(window: secretaryWindow) }
+    func toggleTasksAgent() { toggleAssistant(window: tasksWindow) }
+    func toggleFactcheckAgent() { toggleAssistant(window: factcheckWindow) }
+    func toggleLawyerAgent() { toggleAssistant(window: lawyerWindow) }
 
     // Языки общения для переводчика: код NLLB-ключа + подпись для меню.
     // Моя речь переводится в выбранный язык, чтобы прочесть его вслух.

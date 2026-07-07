@@ -484,40 +484,70 @@ public struct ContentView: View {
     // Ассистенты: крупные заметные кнопки — каждая открывает отдельное окно
     // ассистента (и включает его). Действуют на лету в активной сессии.
     private var assistantTogglesRow: some View {
-        HStack(spacing: 10) {
-            Text("Ассистенты — открыть окно:")
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ассистенты — нажми, чтобы открыть окно:")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(red: 0.33, green: 0.20, blue: 0.13))
 
-            assistantButton(
-                title: "Оркестратор",
-                isOpen: viewModel.orchestratorWindowOpen,
-                action: viewModel.toggleOrchestratorAgent,
-                help: "Открывает отдельное окно ассистента: практический совет + осторожный/уверенный варианты ответа по триггерам разговора. Окно невидимо при демонстрации экрана.")
+            FlowLayout(spacing: 8) {
+                assistantButton(
+                    title: "Оркестратор",
+                    isOpen: viewModel.orchestratorWindowOpen,
+                    action: viewModel.toggleOrchestratorAgent,
+                    help: "Практический совет + осторожный/уверенный варианты ответа по триггерам разговора.")
 
-            assistantButton(
-                title: "Психолог",
-                isOpen: viewModel.psychologistWindowOpen,
-                action: viewModel.togglePsychologistAgent,
-                help: "Открывает отдельное окно ассистента: анализ психологии собеседника — эмоциональный фон, давление, скрытые риски, совет как ответить спокойнее.")
+                assistantButton(
+                    title: "Психолог",
+                    isOpen: viewModel.psychologistWindowOpen,
+                    action: viewModel.togglePsychologistAgent,
+                    help: "Психология собеседника: эмоциональный фон, давление, скрытые риски, как ответить спокойнее.")
 
-            assistantButton(
-                title: "Переводчик",
-                isOpen: viewModel.translatorWindowOpen,
-                action: viewModel.toggleTranslatorAgent,
-                help: "Открывает отдельное окно ассистента: локальный офлайн-перевод ваших реплик в выбранный язык общения (меню «Переводчик»). Окно невидимо при демонстрации экрана. Модель ставится один раз: ./tools/setup_translator.sh")
+                assistantButton(
+                    title: "Переводчик (я)",
+                    isOpen: viewModel.translatorWindowOpen,
+                    action: viewModel.toggleTranslatorAgent,
+                    help: "Локальный офлайн-перевод ВАШИХ реплик в язык общения (меню «Переводчик»). Читаете перевод вслух.")
 
-            Spacer(minLength: 8)
+                assistantButton(
+                    title: "Переводчик (собеседник)",
+                    isOpen: viewModel.reverseTranslatorWindowOpen,
+                    action: viewModel.toggleReverseTranslatorAgent,
+                    help: "Перевод речи СОБЕСЕДНИКА на русский. Вместе с прямым переводчиком — двуязычная встреча.")
 
-            Button {
-                viewModel.toggleTranscriptWindow()
-            } label: {
-                Label(viewModel.transcriptWindowOpen ? "Транскрипция ✓" : "Транскрипция",
-                      systemImage: "text.bubble")
+                assistantButton(
+                    title: "Секретарь",
+                    isOpen: viewModel.secretaryWindowOpen,
+                    action: viewModel.toggleSecretaryAgent,
+                    help: "Живой протокол: резюме, решения, открытые вопросы — обновляется по ходу встречи.")
+
+                assistantButton(
+                    title: "Задачи",
+                    isOpen: viewModel.tasksWindowOpen,
+                    action: viewModel.toggleTasksAgent,
+                    help: "Вытаскивает задачи и договорённости: что, кто, к какому сроку.")
+
+                assistantButton(
+                    title: "Факт-чекер",
+                    isOpen: viewModel.factcheckWindowOpen,
+                    action: viewModel.toggleFactcheckAgent,
+                    help: "Помечает сомнительные утверждения собеседника и противоречия сказанному ранее.")
+
+                assistantButton(
+                    title: "Юрист",
+                    isOpen: viewModel.lawyerWindowOpen,
+                    action: viewModel.toggleLawyerAgent,
+                    help: "Юридические и обязательственные риски: расплывчатые формулировки, что зафиксировать письменно.")
+
+                Button {
+                    viewModel.toggleTranscriptWindow()
+                } label: {
+                    Label(viewModel.transcriptWindowOpen ? "Транскрипция ✓" : "Транскрипция",
+                          systemImage: "text.bubble")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .help("Вытащить живую транскрипцию в самостоятельное окно (поверх всех, невидима при демонстрации экрана).")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .help("Вытащить живую транскрипцию в самостоятельное окно: свободное размещение, «поверх всех окон» по кнопке-пину, невидима при демонстрации экрана")
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)

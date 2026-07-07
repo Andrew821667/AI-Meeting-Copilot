@@ -123,12 +123,17 @@ class LocalTranslator:
                 return False
 
     def translate(
-        self, text: str, target_lang: str = DEFAULT_TARGET
+        self,
+        text: str,
+        target_lang: str = DEFAULT_TARGET,
+        source_lang: str | None = None,
     ) -> tuple[str, str, str] | None:
-        """Переводит мою речь в язык общения `target_lang`.
+        """Переводит фразу в `target_lang`.
 
+        `source_lang` можно задать явно (напр. язык общения для речи
+        собеседника); иначе определяется автоматически по кириллице.
         Возвращает (перевод, src_key, tgt_key) или None. None означает либо
-        ошибку, либо что фраза уже на языке общения (переводить нечего)."""
+        ошибку, либо что фраза уже на целевом языке (переводить нечего)."""
         stripped = text.strip()
         if not stripped:
             return None
@@ -137,9 +142,9 @@ class LocalTranslator:
         if not self._ensure_loaded():
             return None
 
-        src = detect_lang(stripped)  # "ru" / "en" по кириллице
+        src = source_lang if source_lang in LANG_CODES else detect_lang(stripped)
         if src == target_lang:
-            return None  # уже на языке общения — ничего не переводим
+            return None  # уже на целевом языке — ничего не переводим
         src_code = LANG_CODES[src][0]
         tgt_code = LANG_CODES[target_lang][0]
         try:

@@ -34,6 +34,28 @@ class TriggerOrchestrator:
         "Прямой поток помощи (вне оркестратора): ответь по сути на текущий вопрос/реплику. "
         "Формат: 1-2 фразы, затем осторожный и уверенный варианты.",
     )
+    SECRETARY_AGENT_PROFILE = (
+        "Секретарь",
+        "Веди живой протокол встречи по текущему контексту. Дай сжатое резюме: о чём договорились, "
+        "какие приняты решения, открытые вопросы. Маркированным списком, без вариантов ответа.",
+    )
+    TASKS_AGENT_PROFILE = (
+        "Задачи",
+        "Извлеки из разговора конкретные задачи и договорённости: что, кто (я/собеседник), к какому сроку. "
+        "Списком «— исполнитель: задача (срок)». Если задач нет — так и напиши. Без вариантов ответа.",
+    )
+    FACTCHECK_AGENT_PROFILE = (
+        "Факт-чекер",
+        "Проверь реплики собеседника на сомнительные или проверяемые утверждения и противоречия сказанному "
+        "ранее. Помечай: ⚠️ спорно / ✅ похоже на правду / ❓ требует проверки, с краткой причиной. "
+        "Только по фактам, без вариантов ответа.",
+    )
+    LAWYER_AGENT_PROFILE = (
+        "Юрист",
+        "Оцени юридические и обязательственные риски в том, о чём договариваются: расплывчатые формулировки, "
+        "скрытые обязательства, что стоит зафиксировать письменно. Кратко, по пунктам. Ты не даёшь юридических "
+        "гарантий — только обращаешь внимание на риски. Без вариантов ответа.",
+    )
 
     def __init__(self, profile: Profile, telemetry: TelemetryCollector | None = None) -> None:
         self.profile = profile
@@ -226,6 +248,14 @@ class TriggerOrchestrator:
             agent_profiles.append(self.MAIN_AGENT_PROFILE)
         if self.profile.psychologist_agent_enabled:
             agent_profiles.append(self.PSYCHOLOGIST_AGENT_PROFILE)
+        if self.profile.secretary_agent_enabled:
+            agent_profiles.append(self.SECRETARY_AGENT_PROFILE)
+        if self.profile.tasks_agent_enabled:
+            agent_profiles.append(self.TASKS_AGENT_PROFILE)
+        if self.profile.factcheck_agent_enabled:
+            agent_profiles.append(self.FACTCHECK_AGENT_PROFILE)
+        if self.profile.lawyer_agent_enabled:
+            agent_profiles.append(self.LAWYER_AGENT_PROFILE)
         if not agent_profiles:
             return cards
 

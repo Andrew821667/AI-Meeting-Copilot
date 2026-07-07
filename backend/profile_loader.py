@@ -44,6 +44,13 @@ class Profile:
     translator_agent_enabled: bool = False
     # Язык общения: в него переводится моя речь (чтобы прочесть вслух).
     translator_target_lang: str = "en"
+    # Обратный переводчик: речь собеседника → мой язык (по умолчанию русский).
+    reverse_translator_agent_enabled: bool = False
+    # LLM-ассистенты (генерятся оркестратором как отдельные слот-карточки).
+    secretary_agent_enabled: bool = False
+    tasks_agent_enabled: bool = False
+    factcheck_agent_enabled: bool = False
+    lawyer_agent_enabled: bool = False
 
 
 def _negotiation() -> Profile:
@@ -232,6 +239,11 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         psychologist_agent_enabled=bool(overrides.get("psychologist_agent_enabled", profile.psychologist_agent_enabled)),
         translator_agent_enabled=bool(overrides.get("translator_agent_enabled", profile.translator_agent_enabled)),
         translator_target_lang=str(overrides.get("translator_target_lang", profile.translator_target_lang) or "en"),
+        reverse_translator_agent_enabled=bool(overrides.get("reverse_translator_agent_enabled", profile.reverse_translator_agent_enabled)),
+        secretary_agent_enabled=bool(overrides.get("secretary_agent_enabled", profile.secretary_agent_enabled)),
+        tasks_agent_enabled=bool(overrides.get("tasks_agent_enabled", profile.tasks_agent_enabled)),
+        factcheck_agent_enabled=bool(overrides.get("factcheck_agent_enabled", profile.factcheck_agent_enabled)),
+        lawyer_agent_enabled=bool(overrides.get("lawyer_agent_enabled", profile.lawyer_agent_enabled)),
     )
 
 
@@ -252,4 +264,9 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "psychologist_agent_enabled": profile.psychologist_agent_enabled,
         "translator_agent_enabled": profile.translator_agent_enabled,
         "translator_target_lang": profile.translator_target_lang,
+        "reverse_translator_agent_enabled": profile.reverse_translator_agent_enabled,
+        "secretary_agent_enabled": profile.secretary_agent_enabled,
+        "tasks_agent_enabled": profile.tasks_agent_enabled,
+        "factcheck_agent_enabled": profile.factcheck_agent_enabled,
+        "lawyer_agent_enabled": profile.lawyer_agent_enabled,
     }
