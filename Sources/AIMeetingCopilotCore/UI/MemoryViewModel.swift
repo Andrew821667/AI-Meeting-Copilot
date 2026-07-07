@@ -10,6 +10,8 @@ public final class MemoryViewModel: ObservableObject {
     @Published public private(set) var state: MemoryState
     @Published public var isBusy: Bool = false
     @Published public var lastError: String?
+    /// Причина недоступности хаба, когда он настроен, но /health не отвечает.
+    @Published public private(set) var hubUnreachableReason: String?
 
     private weak var udsClient: UDSEventClient?
 
@@ -26,6 +28,74 @@ public final class MemoryViewModel: ObservableObject {
             rag_available: false
         )
         recomputeAggregates()
+        probeMemoryHub()
+    }
+
+    // MARK: - Memory Hub self-probe
+
+    /// Бэкенд живёт только во время сессии, поэтому статус хаба нельзя
+    /// брать только из его memory_state — вне сессии окно показывало бы
+    /// «не настроен» при живом хабе. Проверяем сами: читаем тот же .env
+    /// и пингуем /health.
+    public func probeMemoryHub() {
+        let env = Self.readAppSupportEnv()
+        let urlString = (env["AIMC_MEMORYHUB_URL"] ?? "https://memory.ai-verdict.ru")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let token = env["AIMC_MEMORYHUB_TOKEN"] ?? ""
+
+        guard !token.isEmpty, let url = URL(string: "\(urlString)/health") else {
+            state.memory_hub_available = false
+            state.memory_hub_url = ""
+            hubUnreachableReason = nil  // именно «не настроен», а не «недоступен»
+            return
+        }
+
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        Task { [weak self] in
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+                await MainActor.run {
+                    guard let self else { return }
+                    self.state.memory_hub_available = ok
+                    self.state.memory_hub_url = urlString
+                    self.hubUnreachableReason = ok
+                        ? nil
+                        : "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) от \(urlString)/health"
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.state.memory_hub_available = false
+                    self.state.memory_hub_url = urlString
+                    self.hubUnreachableReason = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Мини-парсер .env: KEY=VALUE, строки с #, кавычки по краям значений.
+    private static func readAppSupportEnv() -> [String: String] {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return [:]
+        }
+        let envURL = appSupport.appendingPathComponent("AIMeetingCopilot/.env")
+        guard let raw = try? String(contentsOf: envURL, encoding: .utf8) else { return [:] }
+        var result: [String: String] = [:]
+        for line in raw.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#"),
+                  let eq = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
+            var value = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            if value.count >= 2,
+               (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
+                value = String(value.dropFirst().dropLast())
+            }
+            result[key] = value
+        }
+        return result
     }
 
     // MARK: - Public API
@@ -43,6 +113,7 @@ public final class MemoryViewModel: ObservableObject {
         newState.files = files
         self.state = newState
         recomputeAggregates()
+        probeMemoryHub()
         sendRefreshToBackend()
     }
 

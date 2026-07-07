@@ -84,6 +84,10 @@ public struct MemoryWindowView: View {
                     Label("Memory Hub активен: \(viewModel.state.memory_hub_url). Для каждого вопроса делаем hybrid-search по внешней памяти; после окончания сессии транскрипт уходит в Hub как новый источник.", systemImage: "checkmark.seal")
                         .font(.caption)
                         .foregroundStyle(.green)
+                } else if let reason = viewModel.hubUnreachableReason {
+                    Label("Memory Hub настроен, но недоступен: \(reason). Проверь интернет/сервер и нажми «Обновить».", systemImage: "wifi.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 } else {
                     Label("Memory Hub не настроен. Добавь в ~/Library/Application Support/AIMeetingCopilot/.env: AIMC_MEMORYHUB_URL и AIMC_MEMORYHUB_TOKEN, затем перезапусти приложение.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
