@@ -12,6 +12,8 @@ public final class MemoryViewModel: ObservableObject {
     @Published public var lastError: String?
     /// Причина недоступности хаба, когда он настроен, но /health не отвечает.
     @Published public private(set) var hubUnreachableReason: String?
+    /// Число активных записей в Memory Hub (из /memory/stats), если известно.
+    @Published public private(set) var hubActiveItems: Int?
 
     private weak var udsClient: UDSEventClient?
 
@@ -64,6 +66,7 @@ public final class MemoryViewModel: ObservableObject {
                         ? nil
                         : "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) от \(urlString)/health"
                 }
+                if ok { await self?.fetchHubStats(baseURL: urlString, token: token) }
             } catch {
                 await MainActor.run {
                     guard let self else { return }
@@ -73,6 +76,19 @@ public final class MemoryViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Подтягивает /memory/stats — показать пользователю, что хаб не пустой:
+    /// сами воспоминания живут на сервере и подтягиваются под каждый вопрос.
+    private func fetchHubStats(baseURL: String, token: String) async {
+        guard let url = URL(string: "\(baseURL)/memory/stats") else { return }
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let active = obj["active"] as? Int
+        await MainActor.run { self.hubActiveItems = active }
     }
 
     /// Мини-парсер .env: KEY=VALUE, строки с #, кавычки по краям значений.

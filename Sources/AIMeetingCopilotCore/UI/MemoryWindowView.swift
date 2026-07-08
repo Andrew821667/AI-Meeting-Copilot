@@ -7,6 +7,16 @@ public struct MemoryWindowView: View {
         self.viewModel = viewModel
     }
 
+    private var hubActiveLabelText: String {
+        let base = "Memory Hub активен: \(viewModel.state.memory_hub_url)."
+        if let count = viewModel.hubActiveItems {
+            let formatted = NumberFormatter.localizedString(
+                from: NSNumber(value: count), number: .decimal)
+            return "\(base) В хабе \(formatted) активных записей памяти."
+        }
+        return base
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
@@ -81,9 +91,12 @@ public struct MemoryWindowView: View {
 
             if viewModel.state.settings.mode == "memory_hub" {
                 if viewModel.state.memory_hub_available {
-                    Label("Memory Hub активен: \(viewModel.state.memory_hub_url). Для каждого вопроса делаем hybrid-search по внешней памяти; после окончания сессии транскрипт уходит в Hub как новый источник.", systemImage: "checkmark.seal")
+                    Label(hubActiveLabelText, systemImage: "checkmark.seal")
                         .font(.caption)
                         .foregroundStyle(.green)
+                    Label("Воспоминания хаба живут на сервере и НЕ отображаются в списке файлов ниже — «Файлы памяти» это отдельные локальные заметки. Под каждый вопрос собеседника Суфлёр автоматически находит в хабе несколько подходящих воспоминаний.", systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if let reason = viewModel.hubUnreachableReason {
                     Label("Memory Hub настроен, но недоступен: \(reason). Проверь интернет/сервер и нажми «Обновить».", systemImage: "wifi.exclamationmark")
                         .font(.caption)

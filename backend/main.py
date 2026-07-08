@@ -738,23 +738,32 @@ class BackendServer:
             orch = self.runtime.orchestrator
             context = orch._build_force_context(seg)
             trigger_reason = orch._build_force_answer_reason(seg)
-            slot_id = orch._slot_card_id("Ответы на вопросы")
+            slot_id = orch._slot_card_id("Суфлёр")
             previous_history = self._render_force_history()
             current_question = seg.text.strip()
 
-            # Готовим итоговый memory_block: plain (если режим plain) ИЛИ
-            # ответ Memory Hub под текущий вопрос (если режим memory_hub).
+            # Память для Суфлёра: локальный plain-блок + подборка из Memory Hub
+            # под текущий вопрос. Hub спрашиваем при ЛЮБОМ режиме памяти
+            # (не только memory_hub): вопросы про прошлый опыт/проделанную
+            # работу должны находить воспоминания всегда, когда память включена.
             settings = self.runtime.memory_settings_cache
             memory_block = self.runtime.memory_block  # plain-блок, посчитан на старте
-            if settings.enabled and settings.mode == "memory_hub":
+            if settings.enabled and self.runtime.memory_hub.config.enabled:
                 hub_block = await asyncio.to_thread(
                     self.runtime.memory_hub.build_context,
                     current_question,
                 )
                 if hub_block:
-                    memory_block = hub_block
-                    logger.debug("memory_hub: context %d chars for question %.60s",
-                                 len(hub_block), current_question)
+                    hub_section = (
+                        "Подборка из внешней памяти (Memory Hub) под текущий вопрос:\n"
+                        + hub_block
+                    )
+                    memory_block = (
+                        f"{memory_block}\n\n{hub_section}" if memory_block.strip()
+                        else hub_section
+                    )
+                    logger.info("memory_hub: %d chars of context for question %.60s",
+                                len(hub_block), current_question)
 
             def merge_with_history(answer_text: str) -> str:
                 current_block = f"❓ {current_question}\n\n💬 {answer_text}"

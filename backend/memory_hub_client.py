@@ -125,16 +125,26 @@ class MemoryHubClient:
                 v = payload.get(key)
                 if isinstance(v, str) and v.strip():
                     return v
-            # Fallback: items[].text/.content
-            items = payload.get("items") or payload.get("memory_items") or []
+            # OpenAPI v0.3: hybrid-search отдаёт "documents":
+            # [{ref, title, text, kind, type}, ...] в порядке релевантности.
+            items = (
+                payload.get("documents")
+                or payload.get("items")
+                or payload.get("memory_items")
+                or []
+            )
             chunks: list[str] = []
             for item in items:
-                if isinstance(item, dict):
-                    txt = item.get("text") or item.get("content") or ""
-                    if txt:
-                        chunks.append(str(txt).strip())
+                if not isinstance(item, dict):
+                    continue
+                title = str(item.get("title") or "").strip()
+                txt = str(item.get("text") or item.get("content") or "").strip()
+                if title and txt and title != txt:
+                    chunks.append(f"• {title}\n  {txt}")
+                elif title or txt:
+                    chunks.append(f"• {title or txt}")
             if chunks:
-                return "\n\n────────\n\n".join(chunks)
+                return "\n".join(chunks)
         return ""
 
     def capture_session(

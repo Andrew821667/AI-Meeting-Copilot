@@ -265,8 +265,8 @@ public struct ContentView: View {
 
             controls
             Text(viewModel.profileSettings.forceAnswerMode
-                 ? "Ответы на вопросы: ВКЛ — LLM анализирует реплики и даёт рекомендации в реальном времени."
-                 : "Ответы на вопросы: ВЫКЛ.")
+                 ? "Суфлёр: ВКЛ — LLM отвечает на вопросы в реальном времени; вопросы про опыт подтягивают Memory Hub."
+                 : "Суфлёр: ВЫКЛ.")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(viewModel.profileSettings.forceAnswerMode ? Color(red: 0.33, green: 0.20, blue: 0.13) : .secondary)
             Text(viewModel.startGuideText)
@@ -454,16 +454,8 @@ public struct ContentView: View {
             .keyboardShortcut(.space, modifiers: [.command, .shift])
             .disabled(viewModel.sessionState != .capturing)
 
-            Button(viewModel.profileSettings.forceAnswerMode
-                   ? "Ответы на вопросы: ВКЛ"
-                   : "Ответы на вопросы: ВЫКЛ") {
-                viewModel.toggleForceAnswerMode()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .tint(viewModel.profileSettings.forceAnswerMode
-                  ? Color(red: 0.40, green: 0.31, blue: 0.23)
-                  : Color(red: 0.58, green: 0.53, blue: 0.46))
+            // Кнопка «Ответы на вопросы» переехала в ряд ассистентов как «Суфлёр»
+            // (открывает отдельное окно и включает режим прямых ответов).
 
             // Быстрая кнопка вкл/выкл памяти прямо в основном окне —
             // полные настройки (выбор Plain/Memory Hub, файлы) в окне ⇧⌘M.
@@ -490,6 +482,12 @@ public struct ContentView: View {
                 .foregroundStyle(Color(red: 0.33, green: 0.20, blue: 0.13))
 
             FlowLayout(spacing: 8) {
+                assistantButton(
+                    title: "Суфлёр",
+                    isOpen: viewModel.souffleurWindowOpen,
+                    action: viewModel.toggleSouffleurAgent,
+                    help: "Прямые ответы на вопросы собеседника в реальном времени (бывшие «Ответы на вопросы»). Вопросы про ваш опыт и проделанную работу подтягивают воспоминания из Memory Hub — несколько готовых вариантов ответа.")
+
                 assistantButton(
                     title: "Оркестратор",
                     isOpen: viewModel.orchestratorWindowOpen,

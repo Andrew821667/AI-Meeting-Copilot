@@ -30,8 +30,10 @@ class TriggerOrchestrator:
         "и один практический совет, как ответить спокойнее.",
     )
     DIRECT_FORCE_AGENT_PROFILE = (
-        "Ответы на вопросы",
+        "Суфлёр",
         "Прямой поток помощи (вне оркестратора): ответь по сути на текущий вопрос/реплику. "
+        "Если вопрос касается прошлого опыта, проделанной работы или воспоминаний — "
+        "опирайся на блок ПАМЯТЬ и предложи несколько подходящих вариантов ответа. "
         "Формат: 1-2 фразы, затем осторожный и уверенный варианты.",
     )
     SECRETARY_AGENT_PROFILE = (
@@ -126,17 +128,18 @@ class TriggerOrchestrator:
 
         source_ts_end = time.monotonic()
         card = InsightCard(
-            id=self._slot_card_id("Ответы на вопросы"),
+            id=self._slot_card_id("Суфлёр"),
             scenario=self.profile.id,
             card_mode="direct_answer",
-            trigger_reason="режим ответов на вопросы активирован",
-            insight="Режим ответов на вопросы активен. Задайте вопрос голосом — LLM даст развёрнутый ответ.",
+            trigger_reason="режим Суфлёра активирован",
+            insight="Суфлёр активен. Задайте вопрос голосом — LLM даст развёрнутый ответ; "
+                    "вопросы про прошлый опыт подтянут воспоминания из Memory Hub.",
             reply_cautious="",
             reply_confident="",
             severity="info",
             timestamp=asyncio.get_running_loop().time(),
             speaker="THEM",
-            agent_name="Ответы на вопросы",
+            agent_name="Суфлёр",
             is_fallback=False,
             source_ts_end=source_ts_end,
         )

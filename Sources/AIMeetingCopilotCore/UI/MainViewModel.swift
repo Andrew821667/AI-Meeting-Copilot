@@ -113,6 +113,10 @@ public final class MainViewModel: ObservableObject {
         title: "Факт-чекер", agentName: "Факт-чекер", autosaveName: "aimc-assistant-factcheck")
     public let lawyerWindow = AssistantWindowManager(
         title: "Юрист", agentName: "Юрист", autosaveName: "aimc-assistant-lawyer")
+    // Суфлёр = бывшие «Ответы на вопросы» (force answer mode): прямые ответы
+    // на вопросы собеседника; вопросы про опыт подтягивают Memory Hub.
+    public let souffleurWindow = AssistantWindowManager(
+        title: "Суфлёр", agentName: "Суфлёр", autosaveName: "aimc-assistant-souffleur")
     private var assistantWindowsWired = false
     @Published public private(set) var orchestratorWindowOpen = false
     @Published public private(set) var psychologistWindowOpen = false
@@ -122,6 +126,7 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var tasksWindowOpen = false
     @Published public private(set) var factcheckWindowOpen = false
     @Published public private(set) var lawyerWindowOpen = false
+    @Published public private(set) var souffleurWindowOpen = false
     private let historyStore = SessionHistoryStore()
     private let savedCardStore = SavedCardStore()
     private let excludePhraseStore = ExcludePhraseStore()
@@ -493,6 +498,16 @@ public extension MainViewModel {
             self?.lawyerWindowOpen = open
             self?.syncAssistantEnabled(\.lawyerAgentEnabled, open)
         }
+        souffleurWindow.onStateChange = { [weak self] open in
+            guard let self else { return }
+            self.souffleurWindowOpen = open
+            // Окно Суфлёра управляет force answer mode.
+            if self.profileSettings.forceAnswerMode != open {
+                self.profileSettings.forceAnswerMode = open
+                self.persistForceMode(open, for: self.selectedProfileID)
+                self.sendProfileOverridesUpdateIfNeeded()
+            }
+        }
     }
 
     private func syncAssistantEnabled(
@@ -515,6 +530,7 @@ public extension MainViewModel {
         profileSettings.tasksAgentEnabled = tasksWindow.isOpen
         profileSettings.factcheckAgentEnabled = factcheckWindow.isOpen
         profileSettings.lawyerAgentEnabled = lawyerWindow.isOpen
+        profileSettings.forceAnswerMode = souffleurWindow.isOpen
     }
 
     private func toggleAssistant(window: AssistantWindowManager) {
@@ -534,6 +550,7 @@ public extension MainViewModel {
     func toggleTasksAgent() { toggleAssistant(window: tasksWindow) }
     func toggleFactcheckAgent() { toggleAssistant(window: factcheckWindow) }
     func toggleLawyerAgent() { toggleAssistant(window: lawyerWindow) }
+    func toggleSouffleurAgent() { toggleAssistant(window: souffleurWindow) }
 
     // Языки общения для переводчика: код NLLB-ключа + подпись для меню.
     // Моя речь переводится в выбранный язык, чтобы прочесть его вслух.
