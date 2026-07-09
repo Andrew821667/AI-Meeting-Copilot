@@ -90,23 +90,39 @@ class MemoryHubClient:
         if project:
             params["project"] = project
 
-        try:
-            r = httpx.get(
-                f"{self.config.base_url}/context/build",
-                params=params,
-                headers=self._auth_headers(),
-                timeout=TIMEOUT_CONTEXT_SEC,
-            )
-        except httpx.TimeoutException:
-            logger.warning(
-                "memory_hub: /context/build timed out after %.0fs (Hub slow/empty?)",
-                TIMEOUT_CONTEXT_SEC,
-            )
-            return ""
-        except Exception as exc:
-            logger.warning("memory_hub: context build failed: %s", exc)
-            return ""
+        # Один быстрый ретрай: хаб на mini коротко флапает при рестартах
+        # контейнера/сети — второй заход через секунду обычно успешен.
+        r = None
+        for attempt in (0, 1):
+            if attempt:
+                import time as _time
+                _time.sleep(1.0)
+            try:
+                r = httpx.get(
+                    f"{self.config.base_url}/context/build",
+                    params=params,
+                    headers=self._auth_headers(),
+                    timeout=TIMEOUT_CONTEXT_SEC,
+                )
+            except httpx.TimeoutException:
+                logger.warning(
+                    "memory_hub: /context/build timed out after %.0fs (attempt %d)",
+                    TIMEOUT_CONTEXT_SEC, attempt + 1,
+                )
+                r = None
+                continue
+            except Exception as exc:
+                logger.warning("memory_hub: context build failed (attempt %d): %s",
+                               attempt + 1, exc)
+                r = None
+                continue
+            if r.status_code < 500:
+                break
+            logger.warning("memory_hub: context build %s (attempt %d)",
+                           r.status_code, attempt + 1)
 
+        if r is None:
+            return ""
         if r.status_code != 200:
             logger.warning("memory_hub: context build %s: %s", r.status_code, r.text[:200])
             return ""
@@ -180,19 +196,32 @@ class MemoryHubClient:
             },
         }
 
-        try:
-            r = httpx.post(
-                f"{self.config.base_url}/capture",
-                json=body,
-                headers=self._auth_headers(),
-                timeout=TIMEOUT_CAPTURE_SEC,
-            )
-        except Exception as exc:
-            logger.warning("memory_hub: capture failed: %s", exc)
-            return False
+        # Потерянный capture = потерянная память о встрече. external_id даёт
+        # идемпотентность, так что ретраим до 3 раз с нарастающей паузой —
+        # переживаем короткие рестарты хаба.
+        import time as _time
+        last_err = ""
+        for attempt in range(3):
+            if attempt:
+                _time.sleep(3.0 * attempt)
+            try:
+                r = httpx.post(
+                    f"{self.config.base_url}/capture",
+                    json=body,
+                    headers=self._auth_headers(),
+                    timeout=TIMEOUT_CAPTURE_SEC,
+                )
+            except Exception as exc:
+                last_err = str(exc)
+                logger.warning("memory_hub: capture failed (attempt %d): %s", attempt + 1, exc)
+                continue
+            if 200 <= r.status_code < 300:
+                logger.info("memory_hub: captured session %s (%d chars)", session_id, len(content))
+                return True
+            last_err = f"{r.status_code}: {r.text[:200]}"
+            if r.status_code < 500:
+                break  # 4xx ретраить бессмысленно
+            logger.warning("memory_hub: capture %s (attempt %d)", r.status_code, attempt + 1)
 
-        if 200 <= r.status_code < 300:
-            logger.info("memory_hub: captured session %s (%d chars)", session_id, len(content))
-            return True
-        logger.warning("memory_hub: capture %s: %s", r.status_code, r.text[:200])
+        logger.warning("memory_hub: capture gave up: %s", last_err)
         return False
