@@ -88,9 +88,7 @@ public struct MemoryWindowView: View {
                     Text(viewModel.state.memory_hub_available
                          ? "Memory Hub — внешний RAG"
                          : "Memory Hub (не настроен)").tag("memory_hub")
-                    Text(viewModel.state.rag_available
-                         ? "RAG — локальный поиск"
-                         : "RAG — локальный поиск (скоро)").tag("rag")
+                    Text("RAG — локальный поиск").tag("rag")
                 }
                 .pickerStyle(.segmented)
                 .disabled(!viewModel.state.settings.enabled)
@@ -115,10 +113,16 @@ public struct MemoryWindowView: View {
                 }
             }
 
-            if viewModel.state.settings.mode == "rag" && !viewModel.state.rag_available {
-                Label("Локальный RAG в разработке: чанкование и векторизация будут добавлены отдельным обновлением. Сейчас работает только Plain.", systemImage: "info.circle")
+            if viewModel.state.settings.mode == "rag" {
+                Label("Локальный RAG: файлы памяти ниже нарезаются на фрагменты, и под каждый вопрос собеседника Суфлёр получает только релевантные куски (поиск BM25, офлайн). Выбирай этот режим, когда заметок больше лимита Plain (30 000 симв.).", systemImage: "doc.text.magnifyingglass")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
+            }
+
+            if viewModel.state.settings.mode == "plain" {
+                Label("Plain: содержимое всех файлов ниже целиком вклеивается в промпт каждого ответа (лимит 30 000 симв.). Просто и надёжно, пока заметок немного.", systemImage: "doc.plaintext")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

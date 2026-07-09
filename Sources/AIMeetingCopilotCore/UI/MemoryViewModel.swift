@@ -41,7 +41,7 @@ public final class MemoryViewModel: ObservableObject {
             limit_chars: 30_000,
             truncated: false,
             folder_path: dir.path,
-            rag_available: false
+            rag_available: true  // локальный BM25-RAG реализован в бэкенде
         )
         recomputeAggregates()
         probeMemoryHub()
@@ -66,27 +66,37 @@ public final class MemoryViewModel: ObservableObject {
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 8)
+        var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         Task { [weak self] in
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
-                await MainActor.run {
-                    guard let self else { return }
-                    self.state.memory_hub_available = ok
-                    self.state.memory_hub_url = urlString
-                    self.hubUnreachableReason = ok
-                        ? nil
-                        : "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) от \(urlString)/health"
+            // На старте приложения первый запрос часто упирается в непрогретый
+            // сетевой стек (VPN) и таймаутит — пробуем до 3 раз с паузами.
+            for attempt in 0..<3 {
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 5_000_000_000)
                 }
-                if ok { await self?.fetchHubStats(baseURL: urlString, token: token) }
-            } catch {
-                await MainActor.run {
-                    guard let self else { return }
-                    self.state.memory_hub_available = false
-                    self.state.memory_hub_url = urlString
-                    self.hubUnreachableReason = error.localizedDescription
+                do {
+                    let (_, response) = try await URLSession.shared.data(for: request)
+                    let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.state.memory_hub_available = ok
+                        self.state.memory_hub_url = urlString
+                        self.hubUnreachableReason = ok
+                            ? nil
+                            : "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0) от \(urlString)/health"
+                    }
+                    if ok {
+                        await self?.fetchHubStats(baseURL: urlString, token: token)
+                        return
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard let self else { return }
+                        self.state.memory_hub_available = false
+                        self.state.memory_hub_url = urlString
+                        self.hubUnreachableReason = error.localizedDescription
+                    }
                 }
             }
         }

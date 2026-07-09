@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -78,7 +80,7 @@ class MemoryState:
     limit_chars: int = DEFAULT_MAX_CHARS
     truncated: bool = False
     folder_path: str = ""
-    rag_available: bool = False  # пока всегда False — фича в разработке
+    rag_available: bool = False  # True после collect_state: BM25-RAG реализован
     memory_hub_available: bool = False  # есть AIMC_MEMORYHUB_URL/TOKEN и /health OK
     memory_hub_url: str = ""
 
@@ -216,8 +218,9 @@ def build_memory_block(
         # Hub запрашивается per-question в pipeline force-answer.
         return ""
     if cfg.mode == "rag":
-        # RAG ещё не реализован — fallback на plain, чтобы фича работала.
-        logger.info("memory: RAG mode requested but not implemented, falling back to plain")
+        # RAG строит блок per-question (нужен текст вопроса) в пайплайне
+        # Суфлёра через build_rag_block. На старте сессии не вклеиваем ничего.
+        return ""
 
     files = load_memory_files(path)
     if not files:
@@ -248,6 +251,122 @@ def build_memory_block(
     return body + suffix
 
 
+# --- Локальный RAG: чанкование + BM25, полностью офлайн, без зависимостей ---
+
+_WORD_RE = re.compile(r"[а-яёa-z0-9]{2,}", re.IGNORECASE)
+
+# Порезка длинных абзацев и склейка коротких — целимся в чанки ~700 символов:
+# достаточно контекста для LLM, достаточно гранулярно для поиска.
+_CHUNK_TARGET = 700
+_CHUNK_HARD_MAX = 1400
+
+
+def _tokenize(text: str) -> list[str]:
+    return [w.lower() for w in _WORD_RE.findall(text)]
+
+
+def _split_into_chunks(files: list[MemoryFile]) -> list[tuple[str, str]]:
+    """Режет файлы на чанки (имя_файла, текст) по абзацам."""
+    chunks: list[tuple[str, str]] = []
+
+    def flush(name: str, buf: str) -> None:
+        buf = buf.strip()
+        if not buf:
+            return
+        # Жёсткая нарезка сверхдлинных кусков, чтобы один чанк не съел бюджет.
+        while len(buf) > _CHUNK_HARD_MAX:
+            cut = buf.rfind(" ", 0, _CHUNK_HARD_MAX)
+            cut = cut if cut > _CHUNK_HARD_MAX // 2 else _CHUNK_HARD_MAX
+            chunks.append((name, buf[:cut].strip()))
+            buf = buf[cut:].strip()
+        if buf:
+            chunks.append((name, buf))
+
+    for memfile in files:
+        name = memfile.path.name
+        buf = ""
+        for para in re.split(r"\n\s*\n", memfile.content):
+            para = para.strip()
+            if not para:
+                continue
+            if buf and len(buf) + len(para) + 2 > _CHUNK_TARGET:
+                flush(name, buf)
+                buf = para
+            else:
+                buf = f"{buf}\n\n{para}" if buf else para
+        flush(name, buf)
+    return chunks
+
+
+def build_rag_block(
+    query: str,
+    path: Path | None = None,
+    max_chars: int = 6_000,
+    top_k: int = 6,
+) -> str:
+    """Топ релевантных чанков локальной памяти под вопрос (BM25).
+
+    Возвращает готовый блок для system prompt или '' (нет файлов/совпадений).
+    """
+    q_tokens = _tokenize(query or "")
+    if not q_tokens:
+        return ""
+    files = load_memory_files(path)
+    if not files:
+        return ""
+
+    chunks = _split_into_chunks(files)
+    if not chunks:
+        return ""
+
+    # BM25 (k1=1.5, b=0.75) по чанкам как документам.
+    docs = [_tokenize(text) for _, text in chunks]
+    n = len(docs)
+    avg_len = sum(len(d) for d in docs) / max(n, 1)
+    doc_freq: dict[str, int] = {}
+    for d in docs:
+        for term in set(d):
+            doc_freq[term] = doc_freq.get(term, 0) + 1
+
+    k1, b = 1.5, 0.75
+    scored: list[tuple[float, int]] = []
+    for idx, d in enumerate(docs):
+        if not d:
+            continue
+        tf: dict[str, int] = {}
+        for term in d:
+            tf[term] = tf.get(term, 0) + 1
+        score = 0.0
+        for term in q_tokens:
+            f = tf.get(term, 0)
+            if f == 0:
+                continue
+            idf = math.log(1 + (n - doc_freq[term] + 0.5) / (doc_freq[term] + 0.5))
+            score += idf * f * (k1 + 1) / (f + k1 * (1 - b + b * len(d) / avg_len))
+        if score > 0:
+            scored.append((score, idx))
+
+    if not scored:
+        return ""
+    scored.sort(reverse=True)
+
+    parts: list[str] = []
+    used = 0
+    for _score, idx in scored[:top_k]:
+        name, text = chunks[idx]
+        block = f"### {name}\n{text}"
+        if used + len(block) + 2 > max_chars:
+            break
+        parts.append(block)
+        used += len(block) + 2
+
+    if not parts:
+        return ""
+    logger.info("memory: RAG picked %d/%d chunks (%d chars) for query %.60s",
+                len(parts), len(chunks), used, query)
+    return "\n\n".join(parts)
+
+
 def collect_state(
     path: Path | None = None,
     max_chars: int = DEFAULT_MAX_CHARS,
@@ -270,7 +389,7 @@ def collect_state(
         limit_chars=max_chars,
         truncated=total > max_chars,
         folder_path=str(target),
-        rag_available=False,
+        rag_available=True,  # локальный BM25-RAG реализован (build_rag_block)
         memory_hub_available=hub_cfg.enabled,
         memory_hub_url=hub_cfg.base_url if hub_cfg.enabled else "",
     )

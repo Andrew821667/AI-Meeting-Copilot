@@ -19,6 +19,7 @@ from memory_hub_client import MemoryHubClient, MemoryHubConfig
 from memory_loader import (
     MemorySettings,
     build_memory_block,
+    build_rag_block,
     collect_state,
     ensure_memory_dir,
     load_settings as load_memory_settings,
@@ -748,6 +749,11 @@ class BackendServer:
             # работу должны находить воспоминания всегда, когда память включена.
             settings = self.runtime.memory_settings_cache
             memory_block = self.runtime.memory_block  # plain-блок, посчитан на старте
+            if settings.enabled and settings.mode == "rag":
+                # Локальный RAG: релевантные чанки файлов памяти под вопрос.
+                rag_block = await asyncio.to_thread(build_rag_block, current_question)
+                if rag_block:
+                    memory_block = rag_block
             if settings.enabled and self.runtime.memory_hub.config.enabled:
                 hub_block = await asyncio.to_thread(
                     self.runtime.memory_hub.build_context,
