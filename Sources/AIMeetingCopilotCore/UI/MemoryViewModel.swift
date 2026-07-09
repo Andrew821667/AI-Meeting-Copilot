@@ -2,6 +2,15 @@ import Foundation
 import AppKit
 import SwiftUI
 
+/// Запись Memory Hub для браузера в окне «Память».
+public struct HubMemoryItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let type: String     // fact / decision / task / note ...
+    public let title: String
+    public let detail: String
+    public let updatedAt: String
+}
+
 /// Управляет окном «Память». Работает локально через FileManager + JSON
 /// для настроек. Если backend подключён по UDS — отправляет туда обновления,
 /// чтобы изменения подхватились в активной сессии немедленно.
@@ -14,6 +23,11 @@ public final class MemoryViewModel: ObservableObject {
     @Published public private(set) var hubUnreachableReason: String?
     /// Число активных записей в Memory Hub (из /memory/stats), если известно.
     @Published public private(set) var hubActiveItems: Int?
+    /// Записи хаба для браузера в окне (последние или результат поиска).
+    @Published public private(set) var hubItems: [HubMemoryItem] = []
+    @Published public private(set) var hubSearchBusy = false
+    /// Текущий поисковый запрос по хабу ("" = последние записи).
+    @Published public var hubSearchQuery = ""
 
     private weak var udsClient: UDSEventClient?
 
@@ -88,7 +102,58 @@ public final class MemoryViewModel: ObservableObject {
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         let active = obj["active"] as? Int
-        await MainActor.run { self.hubActiveItems = active }
+        await MainActor.run {
+            self.hubActiveItems = active
+            // Первая загрузка браузера хаба: последние записи.
+            if self.hubItems.isEmpty {
+                self.searchHub()
+            }
+        }
+    }
+
+    /// Поиск по хабу для браузера в окне: ""=последние записи, иначе
+    /// hybrid-search — тот же механизм, каким Суфлёр находит воспоминания.
+    public func searchHub() {
+        let env = Self.readAppSupportEnv()
+        let base = (env["AIMC_MEMORYHUB_URL"] ?? "https://memory.ai-verdict.ru")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        let token = env["AIMC_MEMORYHUB_TOKEN"] ?? ""
+        guard !token.isEmpty else { return }
+
+        var components = URLComponents(string: "\(base)/memory/search")
+        components?.queryItems = [
+            URLQueryItem(name: "q", value: hubSearchQuery),
+            URLQueryItem(name: "limit", value: "20"),
+        ]
+        guard let url = components?.url else { return }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        hubSearchBusy = true
+        Task { [weak self] in
+            defer { Task { @MainActor [weak self] in self?.hubSearchBusy = false } }
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let rawItems = obj["items"] as? [[String: Any]] else { return }
+            let items: [HubMemoryItem] = rawItems.compactMap { raw in
+                guard let id = raw["id"] as? String else { return nil }
+                let summary = (raw["summary"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let body = (raw["body"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let object = (raw["object"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = summary.isEmpty ? (body.isEmpty ? object : body) : summary
+                guard !title.isEmpty else { return nil }
+                let detail = (body.isEmpty || body == title) ? object : body
+                return HubMemoryItem(
+                    id: id,
+                    type: raw["type"] as? String ?? "",
+                    title: title,
+                    detail: detail == title ? "" : detail,
+                    updatedAt: String((raw["updated_at"] as? String ?? "").prefix(10))
+                )
+            }
+            await MainActor.run { [weak self] in self?.hubItems = items }
+        }
     }
 
     /// Мини-парсер .env: KEY=VALUE, строки с #, кавычки по краям значений.

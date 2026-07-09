@@ -22,7 +22,14 @@ public struct MemoryWindowView: View {
             header
             settingsBlock
             Divider()
-            filesBlock
+            // В режиме Memory Hub основную площадь занимает браузер хаба —
+            // локальный список файлов сбивал с толку («память пуста», хотя
+            // в хабе 100k+ записей). Файлы остаются в других режимах.
+            if viewModel.state.settings.mode == "memory_hub" && viewModel.state.memory_hub_available {
+                hubBrowserBlock
+            } else {
+                filesBlock
+            }
             Divider()
             footer
         }
@@ -117,6 +124,88 @@ public struct MemoryWindowView: View {
     }
 
     // MARK: - Files list
+
+    // MARK: - Memory Hub browser
+
+    /// Браузер записей хаба: последние записи или результаты поиска — тем же
+    /// hybrid-search, каким Суфлёр находит воспоминания под вопросы.
+    private var hubBrowserBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Память в хабе")
+                    .font(.headline)
+                Spacer()
+                Button("Обновить") { viewModel.searchHub() }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Поиск по памяти (пусто — последние записи)…", text: $viewModel.hubSearchQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { viewModel.searchHub() }
+                Button("Найти") { viewModel.searchHub() }
+                    .disabled(viewModel.hubSearchBusy)
+                if viewModel.hubSearchBusy {
+                    ProgressView().controlSize(.small)
+                }
+            }
+
+            if viewModel.hubItems.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: viewModel.hubSearchBusy ? "clock" : "magnifyingglass")
+                        .font(.system(size: 32))
+                        .foregroundStyle(.secondary)
+                    Text(viewModel.hubSearchBusy ? "Загружаю записи хаба…" : "Ничего не найдено — измени запрос.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(viewModel.hubItems) { item in
+                            hubItemRow(item)
+                        }
+                    }
+                    .padding(6)
+                }
+                .frame(minHeight: 180)
+                .background(Color.secondary.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func hubItemRow(_ item: HubMemoryItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(item.type.isEmpty ? "note" : item.type)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.18))
+                    .clipShape(Capsule())
+                Spacer()
+                Text(item.updatedAt)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(item.title)
+                .font(.callout)
+                .textSelection(.enabled)
+            if !item.detail.isEmpty {
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
 
     private var filesBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
