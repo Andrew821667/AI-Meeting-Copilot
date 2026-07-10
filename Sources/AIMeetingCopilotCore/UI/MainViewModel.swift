@@ -117,6 +117,9 @@ public final class MainViewModel: ObservableObject {
     // на вопросы собеседника; вопросы про опыт подтягивают Memory Hub.
     public let souffleurWindow = AssistantWindowManager(
         title: "Суфлёр", agentName: "Суфлёр", autosaveName: "aimc-assistant-souffleur")
+    /// Глобальный мьют-хоткей (⌥⌘M): мьютит Zoom (микрофон остаётся слышен
+    /// копайлоту — переводчик работает), fallback — системный вход.
+    public let micMuteManager = MicMuteHotkeyManager()
     private var assistantWindowsWired = false
     @Published public private(set) var orchestratorWindowOpen = false
     @Published public private(set) var psychologistWindowOpen = false
@@ -165,6 +168,7 @@ public final class MainViewModel: ObservableObject {
         latestSavedCards = savedCardStore.loadLatest(limit: 50)
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
         recomputeOnboardingReadiness()
+        micMuteManager.registerHotkey()
 
         micCaptureService.onMicEvent = { [weak self] event in
             DispatchQueue.main.async { [weak self] in

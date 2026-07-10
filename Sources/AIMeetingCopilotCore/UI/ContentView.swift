@@ -2,6 +2,8 @@ import SwiftUI
 
 public struct ContentView: View {
     @ObservedObject private var viewModel: MainViewModel
+    // Отдельная подписка: mute-статус живёт в своём ObservableObject.
+    @ObservedObject private var micMute: MicMuteHotkeyManager
     @State private var showProfileEditor = false
     @State private var showExcludeEditor = false
     @State private var showLast50Cards = false
@@ -16,6 +18,7 @@ public struct ContentView: View {
 
     public init(viewModel: MainViewModel = MainViewModel()) {
         self.viewModel = viewModel
+        self.micMute = viewModel.micMuteManager
     }
 
     public var body: some View {
@@ -457,6 +460,15 @@ public struct ContentView: View {
             // Кнопка «Ответы на вопросы» переехала в ряд ассистентов как «Суфлёр»
             // (открывает отдельное окно и включает режим прямых ответов).
 
+            Button {
+                viewModel.micMuteManager.toggleMute()
+            } label: {
+                Label(micMuteLabel, systemImage: "mic.slash")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .help("Мьют для сценария переводчика (⌥⌘M, работает глобально): если запущен Zoom — мьютит/анмьютит ТОЛЬКО Zoom, копайлот продолжает слышать и переводить вашу речь. Говорите по-русски в мьюте → читайте перевод вслух. Без Zoom переключает системный вход (тогда копайлот тоже не слышит).")
+
             // Быстрая кнопка вкл/выкл памяти прямо в основном окне —
             // полные настройки (выбор Plain/Memory Hub, файлы) в окне ⇧⌘M.
             Button(viewModel.memoryViewModel.state.settings.enabled
@@ -568,6 +580,15 @@ public struct ContentView: View {
               ? Color(red: 0.45, green: 0.30, blue: 0.16)
               : Color(red: 0.56, green: 0.46, blue: 0.33))
         .help(help)
+    }
+
+    private var micMuteLabel: String {
+        switch micMute.lastAction {
+        case .none:                    return "Мьют ⌥⌘M"
+        case .zoomToggled:             return "Мьют Zoom ⇄"
+        case .systemMuted(let m, _):   return m ? "Мик: МЬЮТ" : "Мик: вкл"
+        case .failed:                  return "Мьют: ошибка"
+        }
     }
 
     private var memoryModeLabel: String {
