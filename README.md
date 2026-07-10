@@ -47,6 +47,34 @@ AI Meeting Copilot — это macOS-приложение для встреч и 
 - работать в нескольких режимах, включая офлайн-анализ;
 - сохранять историю сессий и карточек.
 
+### Ассистенты (каждый — в своём плавающем окне)
+
+Кнопки в верхнем ряду главного окна; окна ассистентов держатся поверх всех
+и невидимы при демонстрации экрана.
+
+- **Суфлёр** — прямые ответы на вопросы собеседника в реальном времени.
+  Вопросы про ваш опыт/проделанную работу подтягивают воспоминания из памяти
+  и дают несколько готовых вариантов ответа.
+- **Оркестратор** — практический совет + осторожный/уверенный варианты ответа
+  по триггерам разговора.
+- **Психолог** — эмоциональный фон и давление собеседника, как ответить спокойнее.
+- **Переводчик (я)** — локальный офлайн-перевод ваших реплик в язык общения
+  (NLLB-200, меню «Переводчик»; модель ставится один раз:
+  `./tools/setup_translator.sh`). Глобальный хоткей мьюта ⌥⌘M: говорите
+  по-русски в мьюте Zoom — читайте перевод вслух.
+- **Переводчик (собеседник)** — перевод речи собеседника на русский.
+- **Секретарь** — живой протокол: резюме, решения, открытые вопросы.
+- **Задачи** — договорённости: что, кто, к какому сроку.
+- **Факт-чекер** — сомнительные утверждения и противоречия сказанному ранее.
+- **Юрист** — риски договорённостей, что зафиксировать письменно.
+
+### Память (File → «Контекст и память…», ⇧⌘M)
+
+Три режима: **Plain** (локальные .md/.txt вклеиваются целиком),
+**Memory Hub** (внешний RAG-хаб, поиск по всей накопленной памяти,
+браузер записей прямо в окне) и **RAG** (локальный BM25-поиск по файлам
+памяти под каждый вопрос, полностью офлайн).
+
 ### Требования
 
 - macOS 13 Ventura и выше
@@ -171,6 +199,31 @@ This means:
 - display real-time suggestion cards during a conversation;
 - work in multiple modes, including offline analysis;
 - save session and card history.
+
+### Assistants (each in its own floating window)
+
+Buttons in the top row of the main window; assistant windows stay on top and
+are invisible to screen sharing.
+
+- **Prompter (Суфлёр)** — direct real-time answers to the counterpart's
+  questions; questions about your past work pull memories from the memory hub
+  and offer several ready-to-say variants.
+- **Orchestrator** — practical advice + cautious/confident reply options.
+- **Psychologist** — the counterpart's emotional state and pressure.
+- **Translator (me)** — local offline translation of your phrases into the
+  meeting language (NLLB-200, one-time `./tools/setup_translator.sh`);
+  global mute hotkey ⌥⌘M for the interpreter workflow.
+- **Translator (counterpart)** — translates the counterpart into Russian.
+- **Secretary** — live minutes: summary, decisions, open questions.
+- **Tasks** — commitments: what, who, by when.
+- **Fact-checker** — dubious claims and contradictions.
+- **Lawyer** — risk flags for what is being agreed.
+
+### Memory (File → "Context & Memory…", ⇧⌘M)
+
+Three modes: **Plain** (local .md/.txt glued whole), **Memory Hub** (external
+RAG hub with an in-window browser) and **RAG** (local BM25 search over memory
+files per question, fully offline).
 
 ### Requirements
 

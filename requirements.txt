@@ -1,20 +1,23 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-websockets==13.1
-openai==1.54.4
+# Runtime-ядро бэкенда (main.py и модули). Версии — нижние границы,
+# совместимые с Python 3.14 (жёсткие пины старых версий ломали установку:
+# torch==2.5.1 / ctranslate2==4.5.0 не существуют для 3.14, и venv
+# приложения оставался полупустым).
+openai>=1.54
+httpx>=0.27
+python-dotenv>=1.0
+numpy>=2.1
 
-numpy==2.1.3
-torch==2.5.1
-transformers==4.46.3
-sentence-transformers==3.3.1
-ctranslate2==4.5.0
+# Локальный переводчик NLLB (ассистенты «Переводчик (я)» / «(собеседник)»).
+# Модель ставится отдельно: ./tools/setup_translator.sh
+ctranslate2>=4.6.1
+transformers>=4.46
+sentencepiece>=0.2
+huggingface_hub>=0.24
 
-sqlalchemy==2.0.36
-aiosqlite==0.20.0
-pydantic==2.10.1
-pydantic-settings==2.6.1
-python-dotenv==1.0.1
-pyyaml==6.0.2
-aiofiles==24.1.0
-resemblyzer>=0.1.3
-pytest==8.3.3
+# Диаризация спикеров (speaker_diarizer.py / post_diarizer.py) — опциональна,
+# создаётся on-demand и тянет torch. Раскомментируй при необходимости:
+# resemblyzer>=0.1.3
+# torch>=2.12
+
+# Dev
+pytest>=8.3

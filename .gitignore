@@ -8,11 +8,16 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+backend/.venv
 *.env
 .env
 .env.local
 dist/
 backend/.env
+
+# Локальные артефакты: экспорт сессий и настройки Claude Code
+exports/
+.claude/
 
 # OS
 .DS_Store
