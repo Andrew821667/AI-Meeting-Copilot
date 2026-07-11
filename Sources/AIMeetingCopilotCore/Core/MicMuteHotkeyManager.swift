@@ -33,6 +33,30 @@ public final class MicMuteHotkeyManager: ObservableObject {
 
     public init() {}
 
+    /// Диагностика хоткея: NSLog из Carbon-колбэка не виден в unified log,
+    /// пишем в файл (нужен и вне Xcode, у пользователя).
+    nonisolated static func trimDebugLogIfNeeded() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AIMeetingCopilot/hotkey.log")
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int,
+           size > 100_000 {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    nonisolated static func debugLog(_ message: String) {
+        let line = "\(Date()) \(message)\n"
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AIMeetingCopilot/hotkey.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            try? handle.close()
+        } else {
+            try? line.data(using: .utf8)!.write(to: url)
+        }
+    }
+
     deinit {
         // Carbon-ресурсы освобождаются при завершении процесса; явная
         // отписка здесь невозможна (deinit не @MainActor). Менеджер живёт
@@ -43,6 +67,7 @@ public final class MicMuteHotkeyManager: ObservableObject {
 
     public func registerHotkey() {
         guard hotKeyRef == nil else { return }
+        Self.trimDebugLogIfNeeded()
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -50,6 +75,7 @@ public final class MicMuteHotkeyManager: ObservableObject {
         )
 
         let callback: EventHandlerUPP = { _, _, userData in
+            MicMuteHotkeyManager.debugLog("hotkey fired")
             guard let userData else { return noErr }
             let manager = Unmanaged<MicMuteHotkeyManager>.fromOpaque(userData).takeUnretainedValue()
             Task { @MainActor in
@@ -58,19 +84,23 @@ public final class MicMuteHotkeyManager: ObservableObject {
             return noErr
         }
 
+        // Глобальная доставка хоткея требует dispatcher target: на
+        // application target события EventHotKeyPressed приходят только
+        // когда приложение активно (проверено — хоткей «молчал» в фоне).
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), callback, 1, &eventType, selfPtr, &eventHandler)
+        InstallEventHandler(GetEventDispatcherTarget(), callback, 1, &eventType, selfPtr, &eventHandler)
 
         let hotKeyID = EventHotKeyID(signature: OSType(0x41494D43) /* 'AIMC' */, id: 1)
         let status = RegisterEventHotKey(
             UInt32(kVK_ANSI_M),
             UInt32(cmdKey | optionKey),
             hotKeyID,
-            GetApplicationEventTarget(),
+            GetEventDispatcherTarget(),
             0,
             &hotKeyRef
         )
         hotkeyRegistered = (status == noErr && hotKeyRef != nil)
+        Self.debugLog("register status=\(status) ref=\(hotKeyRef == nil ? "nil" : "ok")")
     }
 
     // MARK: - Mute toggle
