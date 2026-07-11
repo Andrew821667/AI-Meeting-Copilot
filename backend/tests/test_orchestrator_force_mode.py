@@ -100,7 +100,7 @@ def test_build_answer_card_returns_direct_answer() -> None:
     ))
     card = result.card
     assert card.card_mode == "direct_answer"
-    assert card.agent_name == "Ответы на вопросы"
+    assert card.agent_name == "Суфлёр"
     assert "Python" in card.insight or "функци" in card.insight.lower()
     assert card.reply_cautious == ""
     assert card.reply_confident == ""
@@ -119,7 +119,7 @@ def test_force_mode_activated_bootstrap_card() -> None:
     orchestrator = _orchestrator()
     cards = asyncio.run(orchestrator.on_force_mode_activated())
     assert len(cards) == 1
-    assert cards[0].agent_name == "Ответы на вопросы"
+    assert cards[0].agent_name == "Суфлёр"
     assert cards[0].card_mode == "direct_answer"
 
 

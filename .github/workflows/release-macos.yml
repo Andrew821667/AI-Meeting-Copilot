@@ -13,7 +13,17 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: macos-14
+    runs-on: macos-15
+    # secrets.* нельзя использовать в if:-условиях шагов — GitHub считает
+    # workflow невалидным и роняет запуск за 0 секунд на каждом пуше.
+    # Значения кладём в job-level env и проверяем env.* в if.
+    env:
+      CERT_P12: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+      NOTARY_KEY_B64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+      NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,44 +59,39 @@ jobs:
           path: dist/AIMeetingCopilot-unsigned.zip
 
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' }}
-        env:
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        if: env.CERT_P12 != '' && env.CERT_PASSWORD != ''
         run: |
-          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          echo "$CERT_P12" | base64 --decode > /tmp/cert.p12
           security create-keychain -p "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security import /tmp/cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
       - name: Prepare notary API key
-        if: ${{ secrets.APPLE_NOTARY_KEY_BASE64 != '' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' }}
-        env:
-          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+        if: env.NOTARY_KEY_B64 != '' && env.NOTARY_KEY_ID != '' && env.NOTARY_ISSUER_ID != ''
         run: |
-          echo "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > /tmp/AuthKey.p8
+          echo "$NOTARY_KEY_B64" | base64 --decode > /tmp/AuthKey.p8
           chmod 600 /tmp/AuthKey.p8
 
       - name: Sign and notarize app
-        if: ${{ secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.APPLE_NOTARY_KEY_BASE64 != '' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' }}
+        if: env.CODESIGN_IDENTITY != '' && env.NOTARY_KEY_B64 != '' && env.NOTARY_KEY_ID != '' && env.NOTARY_ISSUER_ID != ''
         env:
-          AIMC_CODESIGN_IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
-          AIMC_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          AIMC_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          AIMC_CODESIGN_IDENTITY: ${{ env.CODESIGN_IDENTITY }}
+          AIMC_NOTARY_KEY_ID: ${{ env.NOTARY_KEY_ID }}
+          AIMC_NOTARY_ISSUER_ID: ${{ env.NOTARY_ISSUER_ID }}
           AIMC_NOTARY_KEY_PATH: /tmp/AuthKey.p8
         run: |
           chmod +x tools/release_macos.sh
           ./tools/release_macos.sh dist/AIMeetingCopilot.app
 
       - name: Archive signed app
-        if: ${{ secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.APPLE_NOTARY_KEY_BASE64 != '' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' }}
+        if: env.CODESIGN_IDENTITY != '' && env.NOTARY_KEY_B64 != '' && env.NOTARY_KEY_ID != '' && env.NOTARY_ISSUER_ID != ''
         run: |
           ditto -c -k --keepParent dist/AIMeetingCopilot.app dist/AIMeetingCopilot-signed.zip
 
       - name: Upload signed artifact
-        if: ${{ secrets.MACOS_CODESIGN_IDENTITY != '' && secrets.APPLE_NOTARY_KEY_BASE64 != '' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' }}
+        if: env.CODESIGN_IDENTITY != '' && env.NOTARY_KEY_B64 != '' && env.NOTARY_KEY_ID != '' && env.NOTARY_ISSUER_ID != ''
         uses: actions/upload-artifact@v4
         with:
           name: AIMeetingCopilot-signed
