@@ -16,7 +16,11 @@ public enum CalendarSuggestionResult: Equatable {
 
 @MainActor
 public final class CalendarProfileSuggester {
-    private let eventStore: EKEventStore
+    // nonisolated(unsafe): EKEventStore документированно потокобезопасен, а
+    // его async-методы nonisolated — без этой пометки Swift 6.0 (CI) считает
+    // вызов requestFullAccessToEvents() отправкой non-Sendable значения из
+    // MainActor и падает ошибкой (Swift 6.2 с region isolation это допускает).
+    private nonisolated(unsafe) let eventStore: EKEventStore
 
     public init(eventStore: EKEventStore = EKEventStore()) {
         self.eventStore = eventStore
