@@ -1,6 +1,7 @@
 import XCTest
 @testable import AIMeetingCopilotCore
 
+@MainActor
 final class CalendarProfileSuggesterTests: XCTestCase {
     func testDetectsInterviewCandidate() {
         XCTAssertEqual(
