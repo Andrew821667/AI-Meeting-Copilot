@@ -109,6 +109,8 @@ public final class MainViewModel: ObservableObject {
         title: "Секретарь", agentName: "Секретарь", autosaveName: "aimc-assistant-secretary")
     public let tasksWindow = AssistantWindowManager(
         title: "Задачи и договорённости", agentName: "Задачи", autosaveName: "aimc-assistant-tasks")
+    public let terminologistWindow = AssistantWindowManager(
+        title: "Терминолог", agentName: "Терминолог", autosaveName: "aimc-assistant-terminologist")
     public let factcheckWindow = AssistantWindowManager(
         title: "Факт-чекер", agentName: "Факт-чекер", autosaveName: "aimc-assistant-factcheck")
     public let lawyerWindow = AssistantWindowManager(
@@ -127,6 +129,7 @@ public final class MainViewModel: ObservableObject {
     @Published public private(set) var reverseTranslatorWindowOpen = false
     @Published public private(set) var secretaryWindowOpen = false
     @Published public private(set) var tasksWindowOpen = false
+    @Published public private(set) var terminologistWindowOpen = false
     @Published public private(set) var factcheckWindowOpen = false
     @Published public private(set) var lawyerWindowOpen = false
     @Published public private(set) var souffleurWindowOpen = false
@@ -494,6 +497,10 @@ public extension MainViewModel {
             self?.tasksWindowOpen = open
             self?.syncAssistantEnabled(\.tasksAgentEnabled, open)
         }
+        terminologistWindow.onStateChange = { [weak self] open in
+            self?.terminologistWindowOpen = open
+            self?.syncAssistantEnabled(\.terminologistAgentEnabled, open)
+        }
         factcheckWindow.onStateChange = { [weak self] open in
             self?.factcheckWindowOpen = open
             self?.syncAssistantEnabled(\.factcheckAgentEnabled, open)
@@ -532,6 +539,7 @@ public extension MainViewModel {
         profileSettings.reverseTranslatorAgentEnabled = reverseTranslatorWindow.isOpen
         profileSettings.secretaryAgentEnabled = secretaryWindow.isOpen
         profileSettings.tasksAgentEnabled = tasksWindow.isOpen
+        profileSettings.terminologistAgentEnabled = terminologistWindow.isOpen
         profileSettings.factcheckAgentEnabled = factcheckWindow.isOpen
         profileSettings.lawyerAgentEnabled = lawyerWindow.isOpen
         profileSettings.forceAnswerMode = souffleurWindow.isOpen
@@ -552,6 +560,7 @@ public extension MainViewModel {
     func toggleReverseTranslatorAgent() { toggleAssistant(window: reverseTranslatorWindow) }
     func toggleSecretaryAgent() { toggleAssistant(window: secretaryWindow) }
     func toggleTasksAgent() { toggleAssistant(window: tasksWindow) }
+    func toggleTerminologistAgent() { toggleAssistant(window: terminologistWindow) }
     func toggleFactcheckAgent() { toggleAssistant(window: factcheckWindow) }
     func toggleLawyerAgent() { toggleAssistant(window: lawyerWindow) }
     func toggleSouffleurAgent() { toggleAssistant(window: souffleurWindow) }

@@ -19,6 +19,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var reverseTranslatorAgentEnabled: Bool
     public var secretaryAgentEnabled: Bool
     public var tasksAgentEnabled: Bool
+    public var terminologistAgentEnabled: Bool
     public var factcheckAgentEnabled: Bool
     public var lawyerAgentEnabled: Bool
 
@@ -41,6 +42,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         reverseTranslatorAgentEnabled: Bool = false,
         secretaryAgentEnabled: Bool = false,
         tasksAgentEnabled: Bool = false,
+        terminologistAgentEnabled: Bool = false,
         factcheckAgentEnabled: Bool = false,
         lawyerAgentEnabled: Bool = false
     ) {
@@ -62,6 +64,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.reverseTranslatorAgentEnabled = reverseTranslatorAgentEnabled
         self.secretaryAgentEnabled = secretaryAgentEnabled
         self.tasksAgentEnabled = tasksAgentEnabled
+        self.terminologistAgentEnabled = terminologistAgentEnabled
         self.factcheckAgentEnabled = factcheckAgentEnabled
         self.lawyerAgentEnabled = lawyerAgentEnabled
     }
@@ -85,6 +88,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case reverseTranslatorAgentEnabled = "reverse_translator_agent_enabled"
         case secretaryAgentEnabled = "secretary_agent_enabled"
         case tasksAgentEnabled = "tasks_agent_enabled"
+        case terminologistAgentEnabled = "terminologist_agent_enabled"
         case factcheckAgentEnabled = "factcheck_agent_enabled"
         case lawyerAgentEnabled = "lawyer_agent_enabled"
     }
@@ -110,6 +114,7 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         reverseTranslatorAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .reverseTranslatorAgentEnabled) ?? false
         secretaryAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .secretaryAgentEnabled) ?? false
         tasksAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .tasksAgentEnabled) ?? false
+        terminologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .terminologistAgentEnabled) ?? false
         factcheckAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .factcheckAgentEnabled) ?? false
         lawyerAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .lawyerAgentEnabled) ?? false
     }

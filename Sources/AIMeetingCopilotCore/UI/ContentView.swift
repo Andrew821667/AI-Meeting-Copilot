@@ -537,6 +537,12 @@ public struct ContentView: View {
                     help: "Вытаскивает задачи и договорённости: что, кто, к какому сроку.")
 
                 assistantButton(
+                    title: "Терминолог",
+                    isOpen: viewModel.terminologistWindowOpen,
+                    action: viewModel.toggleTerminologistAgent,
+                    help: "Объясняет на лету незнакомые термины, аббревиатуры и жаргон из разговора — одна строка на понятие.")
+
+                assistantButton(
                     title: "Факт-чекер",
                     isOpen: viewModel.factcheckWindowOpen,
                     action: viewModel.toggleFactcheckAgent,

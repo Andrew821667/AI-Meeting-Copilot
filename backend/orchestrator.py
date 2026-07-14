@@ -58,6 +58,12 @@ class TriggerOrchestrator:
         "скрытые обязательства, что стоит зафиксировать письменно. Кратко, по пунктам. Ты не даёшь юридических "
         "гарантий — только обращаешь внимание на риски. Без вариантов ответа.",
     )
+    TERMINOLOGIST_AGENT_PROFILE = (
+        "Терминолог",
+        "Найди в разговоре термины, аббревиатуры, жаргон и узкоспециальные понятия, которые могут быть "
+        "непонятны, и коротко объясни каждый простыми словами (1 строка на термин). Формат: «Термин — "
+        "объяснение». Если ничего требующего пояснения нет — так и напиши. Без вариантов ответа.",
+    )
 
     def __init__(self, profile: Profile, telemetry: TelemetryCollector | None = None) -> None:
         self.profile = profile
@@ -255,6 +261,8 @@ class TriggerOrchestrator:
             agent_profiles.append(self.SECRETARY_AGENT_PROFILE)
         if self.profile.tasks_agent_enabled:
             agent_profiles.append(self.TASKS_AGENT_PROFILE)
+        if self.profile.terminologist_agent_enabled:
+            agent_profiles.append(self.TERMINOLOGIST_AGENT_PROFILE)
         if self.profile.factcheck_agent_enabled:
             agent_profiles.append(self.FACTCHECK_AGENT_PROFILE)
         if self.profile.lawyer_agent_enabled:
