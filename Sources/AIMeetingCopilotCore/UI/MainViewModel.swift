@@ -955,6 +955,44 @@ public extension MainViewModel {
         }
     }
 
+    /// Стадия остановки с таймаутом: живой e2e-тест показал, что
+    /// asrProvider.stopStream() может не вернуться (клин CoreAudio после
+    /// фолбэка SCK→BlackHole) — и Task стопа паркуется навсегда, а кнопка
+    /// «Остановить» выглядит «не работающей». Таймаут гарантирует, что стоп
+    /// всегда доходит до конца; стадии пишутся в session.log для диагностики.
+    @MainActor private final class StopFlag { var resumed = false }
+
+    private func stopStage(_ name: String, timeout: Double = 3.0,
+                           _ op: @escaping () async -> Void) async {
+        Self.sessionLog("stop: \(name)…")
+        // Гонка «операция vs таймер» без task group: оба Task наследуют
+        // MainActor, так что замыкание op никуда не «пересылается» (Swift 6),
+        // а флаг гарантирует единственный resume continuation.
+        let flag = StopFlag()
+        let done: Bool = await withCheckedContinuation { cont in
+            Task { @MainActor in
+                await op()
+                if !flag.resumed { flag.resumed = true; cont.resume(returning: true) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                if !flag.resumed { flag.resumed = true; cont.resume(returning: false) }
+            }
+        }
+        Self.sessionLog(done ? "stop: \(name) ok" : "stop: \(name) TIMEOUT \(timeout)s — пропускаю")
+    }
+
+    nonisolated static func sessionLog(_ message: String) {
+        let line = "\(Date()) \(message)\n"
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/AIMeetingCopilot/session.log")
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+        } else {
+            try? line.data(using: .utf8)!.write(to: url)
+        }
+    }
+
     func stopCapture() {
         Task {
             transcriptTask?.cancel()
@@ -962,12 +1000,19 @@ public extension MainViewModel {
             micTranscriptTask?.cancel()
             micTranscriptTask = nil
 
-            await asrProvider.stopStream()
-            await micASRProvider?.stopStream()
+            let asr = asrProvider
+            await stopStage("asr.stopStream") { await asr.stopStream() }
+            if let micASR = micASRProvider {
+                await stopStage("micASR.stopStream") { await micASR.stopStream() }
+            }
             micASRProvider = nil
-            micCaptureService.stopCapture()
+            await stopStage("micCapture.stop", timeout: 2.0) { [micCaptureService] in
+                micCaptureService.stopCapture()
+            }
             micCaptureService.onAudioBuffer = nil
-            systemAudioService.stopCapture()
+            await stopStage("systemAudio.stop", timeout: 2.0) { [systemAudioService] in
+                systemAudioService.stopCapture()
+            }
             stopSystemStateLoop()
 
             // Останавливаем диаризацию чанков и запись
@@ -978,6 +1023,7 @@ public extension MainViewModel {
                 var overrides = profileSettings
                 overrides.micAudioPath = audioPaths.micPath
                 overrides.systemAudioPath = audioPaths.systemPath
+                Self.sessionLog("stop: send end…")
                 try? await udsClient.send(
                     type: "session_control",
                     payload: SessionControlPayload(
@@ -987,6 +1033,7 @@ public extension MainViewModel {
                         profileOverrides: overrides
                     )
                 )
+                Self.sessionLog("stop: end sent")
             }
 
             try? await Task.sleep(nanoseconds: 200_000_000)

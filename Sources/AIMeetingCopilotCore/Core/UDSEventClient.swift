@@ -1,9 +1,11 @@
 import Foundation
+import os
 import Network
 
 public enum UDSClientError: Error {
     case connectionFailed
     case disconnected
+    case sendTimeout
 }
 
 private struct UDSOutboundEnvelope<P: Codable>: Codable {
@@ -114,8 +116,24 @@ public final class UDSEventClient: @unchecked Sendable {
         let envelope = UDSOutboundEnvelope(type: type, payload: payload)
         let data = try JSONEncoder().encode(envelope) + Data("\n".utf8)
 
+        // Таймаут обязателен: NWConnection.send на соединении в плохом
+        // состоянии может НИКОГДА не вызвать completion (поймано живым
+        // e2e-тестом: send(end) при остановке сессии парковал continuation
+        // навсегда, и кнопка «Остановить» «не работала»). Гоняем completion
+        // против таймера с гарантией единственного resume.
+        let resumed = OSAllocatedUnfairLock(initialState: false)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5.0) {
+                let first = resumed.withLock { done -> Bool in
+                    if done { return false }; done = true; return true
+                }
+                if first { continuation.resume(throwing: UDSClientError.sendTimeout) }
+            }
             connection.send(content: data, completion: .contentProcessed { error in
+                let first = resumed.withLock { done -> Bool in
+                    if done { return false }; done = true; return true
+                }
+                guard first else { return }
                 if let error {
                     continuation.resume(throwing: error)
                     return

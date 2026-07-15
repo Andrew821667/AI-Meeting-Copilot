@@ -26,7 +26,7 @@ from memory_loader import (
     memory_dir,
     save_settings as save_memory_settings,
 )
-from models import AudioLevelEvent, MicEvent, SystemAudioChunk, SystemStateEvent, TranscriptSegment
+from models import AudioLevelEvent, InsightCard, MicEvent, SystemAudioChunk, SystemStateEvent, TranscriptSegment
 from orchestrator import TriggerOrchestrator
 from pdf_export import export_report_pdf
 from postfactum import build_markdown_report
@@ -445,6 +445,35 @@ class BackendServer:
             logger.info("Клиент отключен: %s", peer)
             writer.close()
             await writer.wait_closed()
+            # Страховка: если клиент оборвался при активной сессии (краш
+            # приложения, зависший send(end) на стороне Swift и т.п.) —
+            # финализируем сессию сами, чтобы экспорт и capture в Memory Hub
+            # не потерялись. Штатный end делает то же самое раньше нас.
+            if self.runtime.active:
+                logger.warning("Клиент исчез при активной сессии — финализирую её принудительно")
+                try:
+                    self._cancel_pause_trigger()
+                    duration_sec = max(0.0, time.time() - self.runtime.started_at)
+                    session_id_for_capture = self.runtime.session_id
+                    profile_id_for_capture = self.runtime.profile.id
+                    captured_transcript = self._build_session_capture_text()
+                    self.runtime.end(audio_paths={})
+                    settings = self.runtime.memory_settings_cache
+                    if settings.enabled and settings.mode == "memory_hub" and captured_transcript:
+                        title = f"Meeting · {profile_id_for_capture} · {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        task = asyncio.create_task(asyncio.to_thread(
+                            self.runtime.memory_hub.capture_session,
+                            session_id=session_id_for_capture,
+                            title=title,
+                            content=captured_transcript,
+                            duration_sec=duration_sec,
+                            participants_count=0,
+                            profile_id=profile_id_for_capture,
+                        ))
+                        self._bg_tasks.add(task)
+                        task.add_done_callback(self._bg_tasks.discard)
+                except Exception:
+                    logger.exception("Не удалось финализировать сессию после разрыва клиента")
 
     async def _dispatch_message(self, msg_type: str, payload: dict) -> list[dict]:
         outbound = []
@@ -966,6 +995,14 @@ async def run(socket_path: str, exports_dir: Path) -> None:
     finally:
         uds.close()
         await uds.wait_closed()
+        # Дожидаемся фоновых задач: SIGTERM приходит от приложения через
+        # ~0.2с после event=end, а write-back сессии в Memory Hub — это
+        # HTTP POST на секунды (с ретраями). Без ожидания задача умирала
+        # вместе с процессом, и встречи НИКОГДА не доезжали до хаба.
+        pending = [t for t in server._bg_tasks if not t.done()]
+        if pending:
+            logger.info("Ожидаю %d фоновых задач перед выходом (до 25с)…", len(pending))
+            await asyncio.wait(pending, timeout=25)
         if socket.exists():
             socket.unlink()
         logger.info("Backend UDS остановлен: %s", socket)
