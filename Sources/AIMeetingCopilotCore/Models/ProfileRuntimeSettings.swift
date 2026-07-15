@@ -22,6 +22,10 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
     public var terminologistAgentEnabled: Bool
     public var factcheckAgentEnabled: Bool
     public var lawyerAgentEnabled: Bool
+    // Онлайн-роутинг: включённый аналитический ассистент = «Авто» (оркестратор
+    // подключает по релевантности) или «Всегда», если его имя в pinnedAgents.
+    public var agentRoutingEnabled: Bool
+    public var pinnedAgents: [String]
 
     public init(
         threshold: Double,
@@ -44,7 +48,9 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         tasksAgentEnabled: Bool = false,
         terminologistAgentEnabled: Bool = false,
         factcheckAgentEnabled: Bool = false,
-        lawyerAgentEnabled: Bool = false
+        lawyerAgentEnabled: Bool = false,
+        agentRoutingEnabled: Bool = true,
+        pinnedAgents: [String] = []
     ) {
         self.threshold = threshold
         self.cooldownSec = cooldownSec
@@ -67,6 +73,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         self.terminologistAgentEnabled = terminologistAgentEnabled
         self.factcheckAgentEnabled = factcheckAgentEnabled
         self.lawyerAgentEnabled = lawyerAgentEnabled
+        self.agentRoutingEnabled = agentRoutingEnabled
+        self.pinnedAgents = pinnedAgents
     }
 
     enum CodingKeys: String, CodingKey {
@@ -91,6 +99,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         case terminologistAgentEnabled = "terminologist_agent_enabled"
         case factcheckAgentEnabled = "factcheck_agent_enabled"
         case lawyerAgentEnabled = "lawyer_agent_enabled"
+        case agentRoutingEnabled = "agent_routing_enabled"
+        case pinnedAgents = "pinned_agents"
     }
 
     // Кастомный decode: старые сохранённые настройки не содержат новых полей.
@@ -117,6 +127,8 @@ public struct ProfileRuntimeSettings: Codable, Equatable, Sendable {
         terminologistAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .terminologistAgentEnabled) ?? false
         factcheckAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .factcheckAgentEnabled) ?? false
         lawyerAgentEnabled = try c.decodeIfPresent(Bool.self, forKey: .lawyerAgentEnabled) ?? false
+        agentRoutingEnabled = try c.decodeIfPresent(Bool.self, forKey: .agentRoutingEnabled) ?? true
+        pinnedAgents = try c.decodeIfPresent([String].self, forKey: .pinnedAgents) ?? []
     }
 
     public static func defaults(for profileID: String) -> ProfileRuntimeSettings {

@@ -8,6 +8,7 @@ from collections import deque
 
 logger = logging.getLogger(__name__)
 
+import agent_router
 from diarization_gate import DiarizationGate
 from llm_client import RealtimeLLMClient
 from meeting_memory import MeetingMemoryUpdater
@@ -250,23 +251,26 @@ class TriggerOrchestrator:
         context = self.raw_buffer.recent_text(max_items=20)
         trigger_reason = self._build_trigger_reason(segment=segment, score=score)
         # Состав ассистентов управляется тумблерами в UI (profile overrides).
-        # Психолог долго был определён, но не подключён — теперь включается
-        # отдельной кнопкой и анализирует давление/эмоции поверх Оркестратора.
-        agent_profiles: list[tuple[str, str]] = []
+        # Состав включённых аналитических ассистентов (тумблеры в UI).
+        enabled: list[tuple[str, str]] = []
         if self.profile.orchestrator_agent_enabled:
-            agent_profiles.append(self.MAIN_AGENT_PROFILE)
+            enabled.append(self.MAIN_AGENT_PROFILE)
         if self.profile.psychologist_agent_enabled:
-            agent_profiles.append(self.PSYCHOLOGIST_AGENT_PROFILE)
+            enabled.append(self.PSYCHOLOGIST_AGENT_PROFILE)
         if self.profile.secretary_agent_enabled:
-            agent_profiles.append(self.SECRETARY_AGENT_PROFILE)
+            enabled.append(self.SECRETARY_AGENT_PROFILE)
         if self.profile.tasks_agent_enabled:
-            agent_profiles.append(self.TASKS_AGENT_PROFILE)
+            enabled.append(self.TASKS_AGENT_PROFILE)
         if self.profile.terminologist_agent_enabled:
-            agent_profiles.append(self.TERMINOLOGIST_AGENT_PROFILE)
+            enabled.append(self.TERMINOLOGIST_AGENT_PROFILE)
         if self.profile.factcheck_agent_enabled:
-            agent_profiles.append(self.FACTCHECK_AGENT_PROFILE)
+            enabled.append(self.FACTCHECK_AGENT_PROFILE)
         if self.profile.lawyer_agent_enabled:
-            agent_profiles.append(self.LAWYER_AGENT_PROFILE)
+            enabled.append(self.LAWYER_AGENT_PROFILE)
+        if not enabled:
+            return cards
+
+        agent_profiles = self._route_agents(enabled, segment_text=segment.text, context=context)
         if not agent_profiles:
             return cards
 
@@ -645,6 +649,30 @@ class TriggerOrchestrator:
         if line in context:
             return context
         return f"{context}\n{line}"
+
+    def _route_agents(
+        self, enabled: list[tuple[str, str]], *, segment_text: str, context: str
+    ) -> list[tuple[str, str]]:
+        """Делит включённых ассистентов на «Всегда» (pinned) и «Авто» (пул),
+        и подключает из пула только релевантных реплике. Если роутинг выключен —
+        работают все включённые (прежнее поведение)."""
+        if not self.profile.agent_routing_enabled:
+            return enabled
+
+        pinned = set(self.profile.pinned_agents or ())
+        always = [p for p in enabled if p[0] in pinned]
+        pool = [p for p in enabled if p[0] not in pinned]
+
+        selected = agent_router.route(
+            pool,
+            segment_text=segment_text,
+            context=context,
+            llm_client=self.llm,
+            scenario=self.profile.id,
+        )
+        # Сохраняем стабильный порядок как в enabled.
+        chosen = {p[0] for p in always} | {p[0] for p in selected}
+        return [p for p in enabled if p[0] in chosen]
 
     def _slot_card_id(self, agent_name: str | None) -> str:
         base = (agent_name or "Оркестратор").strip().lower().replace(" ", "_")

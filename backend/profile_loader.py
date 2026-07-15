@@ -52,6 +52,11 @@ class Profile:
     terminologist_agent_enabled: bool = False
     factcheck_agent_enabled: bool = False
     lawyer_agent_enabled: bool = False
+    # Онлайн-роутинг ассистентов. Включённый аналитический ассистент работает в
+    # режиме «Авто» (оркестратор подключает его по релевантности реплики), либо
+    # «Всегда», если его имя есть в pinned_agents (реагирует на каждый триггер).
+    agent_routing_enabled: bool = True
+    pinned_agents: tuple[str, ...] = ()
 
 
 def _negotiation() -> Profile:
@@ -246,6 +251,8 @@ def apply_overrides(profile: Profile, overrides: dict | None) -> Profile:
         terminologist_agent_enabled=bool(overrides.get("terminologist_agent_enabled", profile.terminologist_agent_enabled)),
         factcheck_agent_enabled=bool(overrides.get("factcheck_agent_enabled", profile.factcheck_agent_enabled)),
         lawyer_agent_enabled=bool(overrides.get("lawyer_agent_enabled", profile.lawyer_agent_enabled)),
+        agent_routing_enabled=bool(overrides.get("agent_routing_enabled", profile.agent_routing_enabled)),
+        pinned_agents=tuple(overrides.get("pinned_agents", profile.pinned_agents) or ()),
     )
 
 
@@ -272,4 +279,6 @@ def profile_runtime_settings(profile: Profile) -> dict:
         "terminologist_agent_enabled": profile.terminologist_agent_enabled,
         "factcheck_agent_enabled": profile.factcheck_agent_enabled,
         "lawyer_agent_enabled": profile.lawyer_agent_enabled,
+        "agent_routing_enabled": profile.agent_routing_enabled,
+        "pinned_agents": list(profile.pinned_agents),
     }

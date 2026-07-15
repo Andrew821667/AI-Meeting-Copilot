@@ -554,6 +554,27 @@ public extension MainViewModel {
         }
     }
 
+    // MARK: - Роутинг ассистентов (Выкл / Авто / Всегда)
+
+    /// Включённый аналитический ассистент по умолчанию в режиме «Авто» —
+    /// оркестратор подключает его по релевантности реплики. Закреплённый
+    /// («Всегда», 📌) реагирует на каждый триггер.
+    func isAgentPinned(_ agentName: String) -> Bool {
+        profileSettings.pinnedAgents.contains(agentName)
+    }
+
+    func setAgentPinned(_ agentName: String, _ pinned: Bool) {
+        var set = Set(profileSettings.pinnedAgents)
+        if pinned { set.insert(agentName) } else { set.remove(agentName) }
+        profileSettings.pinnedAgents = set.sorted()
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
+    func toggleAgentRouting() {
+        profileSettings.agentRoutingEnabled.toggle()
+        sendProfileOverridesUpdateIfNeeded()
+    }
+
     func toggleOrchestratorAgent() { toggleAssistant(window: orchestratorWindow) }
     func togglePsychologistAgent() { toggleAssistant(window: psychologistWindow) }
     func toggleTranslatorAgent() { toggleAssistant(window: translatorWindow) }

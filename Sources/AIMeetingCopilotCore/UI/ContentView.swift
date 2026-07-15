@@ -489,9 +489,23 @@ public struct ContentView: View {
     // ассистента (и включает его). Действуют на лету в активной сессии.
     private var assistantTogglesRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Ассистенты — нажми, чтобы открыть окно:")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color(red: 0.33, green: 0.20, blue: 0.13))
+            HStack(spacing: 8) {
+                Text("Ассистенты — нажми, чтобы открыть окно:")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color(red: 0.33, green: 0.20, blue: 0.13))
+
+                Button(viewModel.profileSettings.agentRoutingEnabled
+                       ? "Подключение: Авто" : "Подключение: Все") {
+                    viewModel.toggleAgentRouting()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(viewModel.profileSettings.agentRoutingEnabled
+                      ? Color(red: 0.27, green: 0.43, blue: 0.32) : .gray)
+                .help("Авто: оркестратор подключает включённых ассистентов по релевантности реплики (📌-закреплённые — всегда). Все: каждый включённый ассистент реагирует на каждый триггер, как раньше. Режим ассистента — ПКМ по его кнопке.")
+
+                Spacer(minLength: 0)
+            }
 
             FlowLayout(spacing: 8) {
                 assistantButton(
@@ -504,13 +518,15 @@ public struct ContentView: View {
                     title: "Оркестратор",
                     isOpen: viewModel.orchestratorWindowOpen,
                     action: viewModel.toggleOrchestratorAgent,
-                    help: "Практический совет + осторожный/уверенный варианты ответа по триггерам разговора.")
+                    help: "Практический совет + осторожный/уверенный варианты ответа по триггерам разговора.",
+                    pinName: "Оркестратор")
 
                 assistantButton(
                     title: "Психолог",
                     isOpen: viewModel.psychologistWindowOpen,
                     action: viewModel.togglePsychologistAgent,
-                    help: "Психология собеседника: эмоциональный фон, давление, скрытые риски, как ответить спокойнее.")
+                    help: "Психология собеседника: эмоциональный фон, давление, скрытые риски, как ответить спокойнее.",
+                    pinName: "Психолог")
 
                 assistantButton(
                     title: "Переводчик (я)",
@@ -528,31 +544,36 @@ public struct ContentView: View {
                     title: "Секретарь",
                     isOpen: viewModel.secretaryWindowOpen,
                     action: viewModel.toggleSecretaryAgent,
-                    help: "Живой протокол: резюме, решения, открытые вопросы — обновляется по ходу встречи.")
+                    help: "Живой протокол: резюме, решения, открытые вопросы — обновляется по ходу встречи.",
+                    pinName: "Секретарь")
 
                 assistantButton(
                     title: "Задачи",
                     isOpen: viewModel.tasksWindowOpen,
                     action: viewModel.toggleTasksAgent,
-                    help: "Вытаскивает задачи и договорённости: что, кто, к какому сроку.")
+                    help: "Вытаскивает задачи и договорённости: что, кто, к какому сроку.",
+                    pinName: "Задачи")
 
                 assistantButton(
                     title: "Терминолог",
                     isOpen: viewModel.terminologistWindowOpen,
                     action: viewModel.toggleTerminologistAgent,
-                    help: "Объясняет на лету незнакомые термины, аббревиатуры и жаргон из разговора — одна строка на понятие.")
+                    help: "Объясняет на лету незнакомые термины, аббревиатуры и жаргон из разговора — одна строка на понятие.",
+                    pinName: "Терминолог")
 
                 assistantButton(
                     title: "Факт-чекер",
                     isOpen: viewModel.factcheckWindowOpen,
                     action: viewModel.toggleFactcheckAgent,
-                    help: "Помечает сомнительные утверждения собеседника и противоречия сказанному ранее.")
+                    help: "Помечает сомнительные утверждения собеседника и противоречия сказанному ранее.",
+                    pinName: "Факт-чекер")
 
                 assistantButton(
                     title: "Юрист",
                     isOpen: viewModel.lawyerWindowOpen,
                     action: viewModel.toggleLawyerAgent,
-                    help: "Юридические и обязательственные риски: расплывчатые формулировки, что зафиксировать письменно.")
+                    help: "Юридические и обязательственные риски: расплывчатые формулировки, что зафиксировать письменно.",
+                    pinName: "Юрист")
 
                 Button {
                     viewModel.toggleTranscriptWindow()
@@ -574,10 +595,12 @@ public struct ContentView: View {
 
     @ViewBuilder
     private func assistantButton(
-        title: String, isOpen: Bool, action: @escaping () -> Void, help: String
+        title: String, isOpen: Bool, action: @escaping () -> Void, help: String,
+        pinName: String? = nil
     ) -> some View {
+        let pinned = pinName.map { viewModel.isAgentPinned($0) } ?? false
         Button(action: action) {
-            Label(isOpen ? "\(title): окно ✓" : title,
+            Label(assistantLabel(title: title, isOpen: isOpen, pinned: pinned),
                   systemImage: isOpen ? "macwindow.on.rectangle" : "macwindow")
         }
         .buttonStyle(.borderedProminent)
@@ -585,7 +608,23 @@ public struct ContentView: View {
         .tint(isOpen
               ? Color(red: 0.45, green: 0.30, blue: 0.16)
               : Color(red: 0.56, green: 0.46, blue: 0.33))
-        .help(help)
+        .help(pinName == nil ? help :
+              help + " ПКМ: режим «Авто» (подключается по релевантности реплики) или «Всегда» (📌, на каждый триггер).")
+        .contextMenu {
+            if let pinName {
+                Button(pinned ? "✓ Всегда (📌 на каждый триггер)" : "Всегда (📌 на каждый триггер)") {
+                    viewModel.setAgentPinned(pinName, true)
+                }
+                Button(pinned ? "Авто (по релевантности реплики)" : "✓ Авто (по релевантности реплики)") {
+                    viewModel.setAgentPinned(pinName, false)
+                }
+            }
+        }
+    }
+
+    private func assistantLabel(title: String, isOpen: Bool, pinned: Bool) -> String {
+        let pin = pinned ? "📌 " : ""
+        return isOpen ? "\(pin)\(title): окно ✓" : "\(pin)\(title)"
     }
 
     private var micMuteLabel: String {
