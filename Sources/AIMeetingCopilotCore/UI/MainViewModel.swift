@@ -172,6 +172,8 @@ public final class MainViewModel: ObservableObject {
         excludedPhrases = excludePhraseStore.load(profileID: selectedProfileID)
         recomputeOnboardingReadiness()
         micMuteManager.registerHotkey()
+        restorePersistedSettings()
+        wireSettingsPersistence()
 
         micCaptureService.onMicEvent = { [weak self] event in
             DispatchQueue.main.async { [weak self] in
@@ -264,6 +266,7 @@ public final class MainViewModel: ObservableObject {
                 self.profileSettings = .defaults(for: profileID)
                 self.profileSettings.forceAnswerMode = self.loadPersistedForceMode(for: profileID)
                 self.reconcileAssistantFlagsWithWindows()
+                self.applyPersistedProfileOverlay()
                 self.reloadExcludedPhrases()
             }
             .store(in: &cancellables)
@@ -529,6 +532,98 @@ public extension MainViewModel {
         sendProfileOverridesUpdateIfNeeded()
     }
 
+    // MARK: - Персистентность настроек (переживают перезапуск приложения)
+
+    private enum PrefKey {
+        static let profileID = "aimc.selectedProfileID"
+        static let asrID = "aimc.selectedASRProviderID"
+        static let captureMode = "aimc.captureSourceMode"
+        static let meetingSubMode = "aimc.meetingSubMode"
+        static let fontSize = "aimc.cardFontSize"
+        static let translatorLang = "aimc.translatorTargetLang"
+        static let routingEnabled = "aimc.agentRoutingEnabled"
+        static let pinnedAgents = "aimc.pinnedAgents"
+        static let llmProvider = "aimc.llmProvider"
+        static let deepseekModel = "aimc.deepseekModel"
+    }
+
+    /// Восстанавливает сохранённые настройки при запуске. profileSettings к
+    /// этому моменту уже инициализирован из .defaults.
+    private func restorePersistedSettings() {
+        let d = UserDefaults.standard
+        if let v = d.string(forKey: PrefKey.profileID), ProfileOption.all.contains(where: { $0.id == v }) {
+            selectedProfileID = v
+            profileSettings = .defaults(for: v)
+            profileSettings.forceAnswerMode = loadPersistedForceMode(for: v)
+            reconcileAssistantFlagsWithWindows()
+        }
+        if let v = d.string(forKey: PrefKey.asrID), ASRProviderOption.all.contains(where: { $0.id == v }) {
+            selectedASRProviderID = v
+        }
+        if let v = d.string(forKey: PrefKey.captureMode), let m = CaptureSourceMode(rawValue: v) {
+            selectedCaptureSourceMode = m
+        }
+        if let v = d.string(forKey: PrefKey.meetingSubMode), let m = MeetingSubMode(rawValue: v) {
+            selectedMeetingSubMode = m
+        }
+        if d.object(forKey: PrefKey.fontSize) != nil {
+            cardFontSize = CGFloat(d.double(forKey: PrefKey.fontSize))
+        }
+        applyPersistedProfileOverlay()
+    }
+
+    /// Глобальные настройки, живущие внутри profileSettings: их надо
+    /// накладывать заново после КАЖДОГО пересоздания profileSettings из
+    /// .defaults (запуск, смена профиля, сброс, календарь) — иначе язык
+    /// переводчика, роутинг, пины и выбор LLM сбрасываются.
+    private func applyPersistedProfileOverlay() {
+        let d = UserDefaults.standard
+        if let v = d.string(forKey: PrefKey.translatorLang), !v.isEmpty {
+            profileSettings.translatorTargetLang = v
+        }
+        if d.object(forKey: PrefKey.routingEnabled) != nil {
+            profileSettings.agentRoutingEnabled = d.bool(forKey: PrefKey.routingEnabled)
+        }
+        if let v = d.stringArray(forKey: PrefKey.pinnedAgents) {
+            profileSettings.pinnedAgents = v
+        }
+        if let v = d.string(forKey: PrefKey.llmProvider), !v.isEmpty {
+            profileSettings.llmProvider = v
+        }
+        if let v = d.string(forKey: PrefKey.deepseekModel), !v.isEmpty {
+            profileSettings.deepseekModel = v
+        }
+    }
+
+    /// Подписки на изменения — каждое изменение сразу в UserDefaults.
+    private func wireSettingsPersistence() {
+        let d = UserDefaults.standard
+        $selectedProfileID.dropFirst()
+            .sink { d.set($0, forKey: PrefKey.profileID) }
+            .store(in: &cancellables)
+        $selectedASRProviderID.dropFirst()
+            .sink { d.set($0, forKey: PrefKey.asrID) }
+            .store(in: &cancellables)
+        $selectedCaptureSourceMode.dropFirst()
+            .sink { d.set($0.rawValue, forKey: PrefKey.captureMode) }
+            .store(in: &cancellables)
+        $selectedMeetingSubMode.dropFirst()
+            .sink { d.set($0.rawValue, forKey: PrefKey.meetingSubMode) }
+            .store(in: &cancellables)
+        $cardFontSize.dropFirst()
+            .sink { d.set(Double($0), forKey: PrefKey.fontSize) }
+            .store(in: &cancellables)
+        $profileSettings.dropFirst()
+            .sink { s in
+                d.set(s.translatorTargetLang, forKey: PrefKey.translatorLang)
+                d.set(s.agentRoutingEnabled, forKey: PrefKey.routingEnabled)
+                d.set(s.pinnedAgents, forKey: PrefKey.pinnedAgents)
+                if let v = s.llmProvider { d.set(v, forKey: PrefKey.llmProvider) }
+                if let v = s.deepseekModel { d.set(v, forKey: PrefKey.deepseekModel) }
+            }
+            .store(in: &cancellables)
+    }
+
     // Приводит флаги ассистентов к фактическому состоянию их окон. Вызывается
     // после каждой переустановки profileSettings из .defaults (смена профиля,
     // сброс сессии), т.к. defaults ставит orchestrator=on — а истина у окон.
@@ -707,6 +802,7 @@ public extension MainViewModel {
         profileSettings = .defaults(for: selectedProfileID)
         profileSettings.forceAnswerMode = loadPersistedForceMode(for: selectedProfileID)
         reconcileAssistantFlagsWithWindows()
+        applyPersistedProfileOverlay()
     }
 
     func refreshCalendarSuggestion(autoApply: Bool = false) {
@@ -1353,6 +1449,7 @@ private extension MainViewModel {
         profileSettings = .defaults(for: suggested)
         profileSettings.forceAnswerMode = loadPersistedForceMode(for: suggested)
         reconcileAssistantFlagsWithWindows()
+        applyPersistedProfileOverlay()
         isApplyingCalendarSuggestion = false
 
         let profileTitle = ProfileOption.title(for: suggested)
